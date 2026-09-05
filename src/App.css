@@ -664,6 +664,15 @@ tbody tr:hover {
   padding: 6px 8px;
 }
 
+.payee-search {
+  width: 100%;
+  box-sizing: border-box;
+  margin: 0 0 6px;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
 .payee-chip {
   display: flex;
   justify-content: space-between;
@@ -763,6 +772,27 @@ tbody tr:hover {
   gap: 6px;
   flex: 1;
   align-content: flex-start;
+  max-height: 68px;
+  overflow: hidden;
+}
+
+.category-payees.expanded {
+  max-height: none;
+  overflow: visible;
+}
+
+.category-expand-btn {
+  align-self: flex-start;
+  border: none;
+  background: transparent;
+  color: var(--accent);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 0;
+}
+
+.category-expand-btn:hover {
+  text-decoration: underline;
 }
 
 .assigned-chip {

@@ -5,8 +5,8 @@ function emptyPosting() {
   return { account: '', amount_raw: '' };
 }
 
-export default function TransactionForm({ initial, accountNames, payees, onSave, onClose, onDelete, saving, error }) {
-  const [date, setDate] = useState(initial?.date ?? new Date().toISOString().slice(0, 10).replace(/-/g, '/'));
+export default function TransactionForm({ initial, initialDate, accountNames, payees, onSave, onClose, onDelete, saving, error }) {
+  const [date, setDate] = useState(initial?.date ?? initialDate ?? new Date().toISOString().slice(0, 10).replace(/-/g, '/'));
   const [payee, setPayee] = useState(initial?.payee ?? '');
   const [postings, setPostings] = useState(
     initial?.postings?.length

@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import Fuse from 'fuse.js';
 import {
   PieChart,
   Pie,
@@ -64,6 +65,57 @@ function ClickableDot({ cx, cy, stroke, payload, dataKey, onPointClick, r = 4 })
   );
 }
 
+function CategoryCard({ cat, total, dragOver, onDragOver, onDragLeave, onDrop, onRename, onToggleHidden, onDelete, onUnassign, onChipDragStart }) {
+  const [expanded, setExpanded] = useState(false);
+  const [overflowing, setOverflowing] = useState(false);
+  const payeesRef = useRef(null);
+
+  useLayoutEffect(() => {
+    const el = payeesRef.current;
+    if (!el) return;
+    setOverflowing(el.scrollHeight > el.clientHeight + 1);
+  }, [cat.payees, expanded]);
+
+  return (
+    <div
+      className={
+        'category-card dropzone' + (dragOver ? ' drag-over' : '') + (cat.hidden ? ' category-card-hidden' : '')
+      }
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
+    >
+      <div className="category-card-header">
+        <span className="color-swatch" style={swatchStyle(cat.color_index)} />
+        <input className="category-name-input" value={cat.name} onChange={(e) => onRename(e.target.value)} />
+        <button className="btn btn-small" title={cat.hidden ? 'Show in charts' : 'Hide from charts'} onClick={onToggleHidden}>
+          {cat.hidden ? 'Show' : 'Hide'}
+        </button>
+        <button className="btn btn-small" onClick={onDelete}>
+          ✕
+        </button>
+      </div>
+      <div className="category-total money">
+        {formatPhp(total)}
+        {cat.hidden && <span className="category-hidden-badge">hidden from charts</span>}
+      </div>
+      <div className={'category-payees' + (expanded ? ' expanded' : '')} ref={payeesRef}>
+        {cat.payees.map((p) => (
+          <span className="assigned-chip" key={p} draggable onDragStart={(e) => onChipDragStart(p, e)}>
+            {p}
+            <button onClick={() => onUnassign(p)}>✕</button>
+          </span>
+        ))}
+      </div>
+      {(overflowing || expanded) && (
+        <button className="category-expand-btn" onClick={() => setExpanded((v) => !v)}>
+          {expanded ? 'Show less' : 'See more'}
+        </button>
+      )}
+    </div>
+  );
+}
+
 export default function AnalysisView() {
   const [analysesList, setAnalysesList] = useState([]);
   const [currentId, setCurrentId] = useState(null);
@@ -81,6 +133,7 @@ export default function AnalysisView() {
   const [series, setSeries] = useState(null);
   const [breakdown, setBreakdown] = useState(null);
   const [selectedPayees, setSelectedPayees] = useState(new Set());
+  const [payeeSearch, setPayeeSearch] = useState('');
   const [lastClickedIndex, setLastClickedIndex] = useState(null);
   const [dragOverTarget, setDragOverTarget] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -189,6 +242,14 @@ export default function AnalysisView() {
   const poolPayees = useMemo(
     () => (computed?.payees ?? []).filter((p) => !assignedPayees.has(p.name)),
     [computed, assignedPayees]
+  );
+  const poolPayeesFuse = useMemo(
+    () => new Fuse(poolPayees, { keys: ['name'], threshold: 0.4, ignoreLocation: true }),
+    [poolPayees]
+  );
+  const visiblePoolPayees = useMemo(
+    () => (payeeSearch.trim() ? poolPayeesFuse.search(payeeSearch).map((r) => r.item) : poolPayees),
+    [payeeSearch, poolPayeesFuse, poolPayees]
   );
   const catTotalByName = useMemo(
     () => new Map((computed?.categories ?? []).map((c) => [c.name, c.total])),
@@ -307,7 +368,7 @@ export default function AnalysisView() {
   const handlePayeeClick = (name, index, e) => {
     if (e.shiftKey && lastClickedIndex !== null) {
       const [lo, hi] = [Math.min(lastClickedIndex, index), Math.max(lastClickedIndex, index)];
-      setSelectedPayees(new Set(poolPayees.slice(lo, hi + 1).map((p) => p.name)));
+      setSelectedPayees(new Set(visiblePoolPayees.slice(lo, hi + 1).map((p) => p.name)));
     } else if (e.ctrlKey || e.metaKey) {
       setSelectedPayees((prev) => {
         const next = new Set(prev);
@@ -627,7 +688,14 @@ export default function AnalysisView() {
           onDrop={handleDropOnPool}
         >
           <div className="payee-pool-header">Payees ({poolPayees.length})</div>
-          {poolPayees.map((p, i) => (
+          <input
+            type="text"
+            className="payee-search"
+            placeholder="Search payees..."
+            value={payeeSearch}
+            onChange={(e) => setPayeeSearch(e.target.value)}
+          />
+          {visiblePoolPayees.map((p, i) => (
             <div
               key={p.name}
               className={'payee-chip' + (selectedPayees.has(p.name) ? ' selected' : '')}
@@ -640,55 +708,30 @@ export default function AnalysisView() {
             </div>
           ))}
           {poolPayees.length === 0 && <p className="muted" style={{ padding: 8 }}>All payees categorized.</p>}
+          {poolPayees.length > 0 && visiblePoolPayees.length === 0 && (
+            <p className="muted" style={{ padding: 8 }}>No payees match "{payeeSearch}".</p>
+          )}
         </div>
 
         <div className="category-grid">
           {categories.map((cat) => (
-            <div
+            <CategoryCard
               key={cat.id}
-              className={
-                'category-card dropzone' +
-                (dragOverTarget === cat.id ? ' drag-over' : '') +
-                (cat.hidden ? ' category-card-hidden' : '')
-              }
+              cat={cat}
+              total={catTotalByName.get(cat.name) ?? 0}
+              dragOver={dragOverTarget === cat.id}
               onDragOver={(e) => {
                 e.preventDefault();
                 setDragOverTarget(cat.id);
               }}
               onDragLeave={() => setDragOverTarget((t) => (t === cat.id ? null : t))}
               onDrop={(e) => handleDropOnCategory(cat.id, e)}
-            >
-              <div className="category-card-header">
-                <span className="color-swatch" style={swatchStyle(cat.color_index)} />
-                <input
-                  className="category-name-input"
-                  value={cat.name}
-                  onChange={(e) => renameCategory(cat.id, e.target.value)}
-                />
-                <button
-                  className="btn btn-small"
-                  title={cat.hidden ? 'Show in charts' : 'Hide from charts'}
-                  onClick={() => toggleCategoryHidden(cat.id)}
-                >
-                  {cat.hidden ? 'Show' : 'Hide'}
-                </button>
-                <button className="btn btn-small" onClick={() => deleteCategory(cat.id)}>
-                  ✕
-                </button>
-              </div>
-              <div className="category-total money">
-                {formatPhp(catTotalByName.get(cat.name) ?? 0)}
-                {cat.hidden && <span className="category-hidden-badge">hidden from charts</span>}
-              </div>
-              <div className="category-payees">
-                {cat.payees.map((p) => (
-                  <span className="assigned-chip" key={p} draggable onDragStart={(e) => handleDragStart(p, e)}>
-                    {p}
-                    <button onClick={() => unassign(cat.id, p)}>✕</button>
-                  </span>
-                ))}
-              </div>
-            </div>
+              onRename={(newName) => renameCategory(cat.id, newName)}
+              onToggleHidden={() => toggleCategoryHidden(cat.id)}
+              onDelete={() => deleteCategory(cat.id)}
+              onUnassign={(p) => unassign(cat.id, p)}
+              onChipDragStart={handleDragStart}
+            />
           ))}
           <button className="new-category-card" onClick={addCategory}>
             + New category
