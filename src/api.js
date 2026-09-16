@@ -35,4 +35,19 @@ export const api = {
   deleteAnalysis: (id) => request('DELETE', `/api/analyses/${encodeURIComponent(id)}`),
   computeAnalysis: (draft) => request('POST', '/api/analyses/compute', draft),
   computeAnalysisSeries: (draft) => request('POST', '/api/analyses/compute-series', draft),
+
+  getAutomations: () => request('GET', '/api/automations'),
+  createAutomation: (automation) => request('POST', '/api/automations', automation),
+  updateAutomation: (id, automation) =>
+    request('PUT', `/api/automations/${encodeURIComponent(id)}`, automation),
+  deleteAutomation: (id) => request('DELETE', `/api/automations/${encodeURIComponent(id)}`),
+  getPendingAutomations: () => request('GET', '/api/automations/pending'),
+  previewPendingAutomation: (id, variables) =>
+    request('POST', `/api/automations/pending/${encodeURIComponent(id)}/preview`, { variables }),
+  approvePendingAutomation: (id, { variables, renderedOverride } = {}) =>
+    request('POST', `/api/automations/pending/${encodeURIComponent(id)}/approve`, {
+      variables: variables ?? null,
+      rendered_override: renderedOverride ?? null,
+    }),
+  skipPendingAutomation: (id) => request('DELETE', `/api/automations/pending/${encodeURIComponent(id)}`),
 };

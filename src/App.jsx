@@ -3,6 +3,7 @@ import TransactionsView from './components/TransactionsView';
 import BudgetsView from './components/BudgetsView';
 import AccountsView from './components/AccountsView';
 import AnalysisView from './components/AnalysisView';
+import AutomationsView from './components/AutomationsView';
 import './App.css';
 
 const TABS = [
@@ -10,6 +11,7 @@ const TABS = [
   { key: 'budgets', label: 'Budgets' },
   { key: 'accounts', label: 'Accounts' },
   { key: 'analysis', label: 'Analysis' },
+  { key: 'automations', label: 'Automations' },
 ];
 
 export default function App() {
@@ -36,6 +38,7 @@ export default function App() {
         {tab === 'budgets' && <BudgetsView />}
         {tab === 'accounts' && <AccountsView />}
         {tab === 'analysis' && <AnalysisView />}
+        {tab === 'automations' && <AutomationsView />}
       </main>
     </div>
   );

@@ -634,9 +634,15 @@ tbody tr:hover {
 
 .analysis-layout {
   display: grid;
-  grid-template-columns: 260px 1fr;
+  grid-template-columns: 260px 260px 1fr;
   gap: 16px;
   align-items: start;
+}
+
+@media (max-width: 900px) {
+  .analysis-layout {
+    grid-template-columns: 1fr;
+  }
 }
 
 .dropzone {
@@ -691,6 +697,22 @@ tbody tr:hover {
 .payee-chip.selected {
   background: var(--accent-bg);
   color: var(--accent);
+}
+
+.payee-chip-name {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.payee-chip-dots {
+  display: flex;
+  gap: 2px;
+  flex-shrink: 0;
 }
 
 .category-grid {
@@ -766,6 +788,25 @@ tbody tr:hover {
   padding: 2px 6px;
 }
 
+.category-balance-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.forecast-lookback-input {
+  width: 48px;
+  padding: 2px 4px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 12px;
+}
+
 .category-payees {
   display: flex;
   flex-wrap: wrap;
@@ -818,19 +859,142 @@ tbody tr:hover {
   color: var(--danger);
 }
 
+.assigned-chip-account {
+  background: var(--bg-alt);
+  border: 1px dashed var(--border);
+}
+
 .new-category-card {
   border: 1px dashed var(--border);
   border-radius: 10px;
   min-height: 140px;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  cursor: pointer;
+  gap: 10px;
   color: var(--text-muted);
   background: transparent;
 }
 
 .new-category-card:hover {
   border-color: var(--accent);
+}
+
+.new-category-btn {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  color: inherit;
+  font-size: 14px;
+  padding: 0;
+}
+
+.new-category-btn:hover {
   color: var(--accent);
+}
+
+.copy-category-control {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.copy-category-list {
+  width: 170px;
+  max-height: 96px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.copy-category-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text);
+  padding: 2px 4px;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.copy-category-option:hover {
+  background: var(--bg-alt);
+}
+
+/* --- Automations --- */
+
+.section-heading {
+  font-size: 16px;
+  margin: 4px 0 10px;
+}
+
+.automation-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 14px;
+  margin-bottom: 24px;
+}
+
+.automation-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.automation-card-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.automation-card-header h3 {
+  font-size: 15px;
+}
+
+.automation-template-preview {
+  background: var(--bg-alt);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 4px 0;
+  transition: opacity 0.1s;
+}
+
+.automation-preview-loading {
+  opacity: 0.55;
+}
+
+.automation-form-row {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.automation-form-row .form-row {
+  flex: 1;
+  min-width: 160px;
+}
+
+.automation-template-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+  resize: vertical;
 }

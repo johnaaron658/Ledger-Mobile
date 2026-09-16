@@ -11,6 +11,7 @@ import {
   YAxis,
   Tooltip,
   Legend,
+  ReferenceLine,
   ResponsiveContainer,
 } from 'recharts';
 import { api } from '../api';
@@ -65,7 +66,7 @@ function ClickableDot({ cx, cy, stroke, payload, dataKey, onPointClick, r = 4 })
   );
 }
 
-function CategoryCard({ cat, total, dragOver, onDragOver, onDragLeave, onDrop, onRename, onToggleHidden, onDelete, onUnassign, onChipDragStart }) {
+function CategoryCard({ cat, total, dragOver, onDragOver, onDragLeave, onDrop, onRename, onToggleHidden, onToggleBalance, onToggleForecast, onForecastLookbackChange, onDelete, onUnassign, onChipDragStart }) {
   const [expanded, setExpanded] = useState(false);
   const [overflowing, setOverflowing] = useState(false);
   const payeesRef = useRef(null);
@@ -74,7 +75,7 @@ function CategoryCard({ cat, total, dragOver, onDragOver, onDragLeave, onDrop, o
     const el = payeesRef.current;
     if (!el) return;
     setOverflowing(el.scrollHeight > el.clientHeight + 1);
-  }, [cat.payees, expanded]);
+  }, [cat.payees, cat.accounts, expanded]);
 
   return (
     <div
@@ -99,11 +100,40 @@ function CategoryCard({ cat, total, dragOver, onDragOver, onDragLeave, onDrop, o
         {formatPhp(total)}
         {cat.hidden && <span className="category-hidden-badge">hidden from charts</span>}
       </div>
+      <label className="category-balance-toggle">
+        <input type="checkbox" checked={!!cat.show_balance} onChange={onToggleBalance} />
+        Show running total on chart
+      </label>
+      <label className="category-balance-toggle">
+        <input type="checkbox" checked={!!cat.forecast_enabled} onChange={onToggleForecast} />
+        Forecast trend using last{' '}
+        <input
+          type="number"
+          min={2}
+          className="forecast-lookback-input"
+          value={cat.forecast_lookback ?? 6}
+          disabled={!cat.forecast_enabled}
+          onClick={(e) => e.stopPropagation()}
+          onChange={(e) => onForecastLookbackChange(Math.max(2, Number(e.target.value) || 2))}
+        />{' '}
+        data points
+      </label>
       <div className={'category-payees' + (expanded ? ' expanded' : '')} ref={payeesRef}>
         {cat.payees.map((p) => (
-          <span className="assigned-chip" key={p} draggable onDragStart={(e) => onChipDragStart(p, e)}>
+          <span className="assigned-chip" key={`p-${p}`} draggable onDragStart={(e) => onChipDragStart('payee', p, e)}>
             {p}
-            <button onClick={() => onUnassign(p)}>✕</button>
+            <button onClick={() => onUnassign('payee', p)}>✕</button>
+          </span>
+        ))}
+        {cat.accounts.map((a) => (
+          <span
+            className="assigned-chip assigned-chip-account"
+            key={`a-${a}`}
+            draggable
+            onDragStart={(e) => onChipDragStart('account', a, e)}
+          >
+            {a}
+            <button onClick={() => onUnassign('account', a)}>✕</button>
           </span>
         ))}
       </div>
@@ -124,18 +154,24 @@ export default function AnalysisView() {
   const [endDate, setEndDate] = useState(todayLedger());
   const [categories, setCategories] = useState([]);
   const [includeUncategorized, setIncludeUncategorized] = useState(true);
+  const [allowMultiCategory, setAllowMultiCategory] = useState(false);
   const [excludedAccounts, setExcludedAccounts] = useState([]);
   const [excludeInput, setExcludeInput] = useState('');
   const [accountNames, setAccountNames] = useState([]);
   const [dateBounds, setDateBounds] = useState(null);
   const [granularity, setGranularity] = useState('months');
+  const [forecastEndDate, setForecastEndDate] = useState('');
   const [computed, setComputed] = useState(null);
   const [series, setSeries] = useState(null);
   const [breakdown, setBreakdown] = useState(null);
   const [selectedPayees, setSelectedPayees] = useState(new Set());
   const [payeeSearch, setPayeeSearch] = useState('');
   const [lastClickedIndex, setLastClickedIndex] = useState(null);
+  const [selectedAccounts, setSelectedAccounts] = useState(new Set());
+  const [accountSearch, setAccountSearch] = useState('');
+  const [lastClickedAccountIndex, setLastClickedAccountIndex] = useState(null);
   const [dragOverTarget, setDragOverTarget] = useState(null);
+  const [copySourceIds, setCopySourceIds] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
@@ -207,6 +243,7 @@ export default function AnalysisView() {
           categories: categories.map(({ id, ...rest }) => rest),
           excluded_accounts: excludedAccounts,
           granularity,
+          forecast_end_date: forecastEndDate || null,
         });
         if (!cancelled) setSeries(result);
       } catch (e) {
@@ -217,31 +254,90 @@ export default function AnalysisView() {
       cancelled = true;
       clearTimeout(handle);
     };
-  }, [startDate, endDate, categories, excludedAccounts, granularity]);
+  }, [startDate, endDate, categories, excludedAccounts, granularity, forecastEndDate]);
 
   const hiddenCategoryNames = useMemo(
     () => new Set(categories.filter((c) => c.hidden).map((c) => c.name)),
     [categories]
   );
   const visibleCategories = useMemo(() => categories.filter((c) => !c.hidden), [categories]);
+  const balanceCategoryNames = useMemo(
+    () => new Set(categories.filter((c) => c.show_balance).map((c) => c.name)),
+    [categories]
+  );
+
+  const forecastKey = (name) => `${name} (forecast)`;
+
+  const forecastCategoryNames = useMemo(
+    () => new Set((series?.forecast?.categories ?? []).map((c) => c.name).filter((n) => !hiddenCategoryNames.has(n))),
+    [series, hiddenCategoryNames]
+  );
 
   const lineData = useMemo(() => {
     if (!series) return [];
-    return series.periods.map((p, i) => {
+    const runningByCat = {};
+    for (const cat of series.categories) {
+      if (!balanceCategoryNames.has(cat.name)) continue;
+      let running = 0;
+      runningByCat[cat.name] = cat.values.map((v) => (running += v));
+    }
+    const rows = series.periods.map((p, i) => {
       const row = { label: labelFor(parseLedger(p.start), granularity), periodStart: p.start, periodEnd: p.end };
       for (const cat of series.categories) {
         if (hiddenCategoryNames.has(cat.name)) continue;
-        row[cat.name] = cat.values[i];
+        row[cat.name] = runningByCat[cat.name] ? runningByCat[cat.name][i] : cat.values[i];
       }
       if (includeUncategorized) row['Uncategorized'] = series.uncategorized.values[i];
       return row;
     });
-  }, [series, granularity, includeUncategorized, hiddenCategoryNames]);
+
+    const forecast = series.forecast;
+    if (forecast && forecast.periods.length > 0 && forecast.categories.length > 0) {
+      const lastRow = rows[rows.length - 1];
+      // Backend already returns forecast values in the same units as the plotted series
+      // (cumulative for "show running total" categories, per-period otherwise), so just
+      // bridge from the last actual point and place them directly — no re-accumulating.
+      for (const fc of forecast.categories) {
+        if (hiddenCategoryNames.has(fc.name)) continue;
+        if (lastRow) lastRow[forecastKey(fc.name)] = lastRow[fc.name];
+      }
+      forecast.periods.forEach((p, i) => {
+        const row = {
+          label: labelFor(parseLedger(p.start), granularity),
+          periodStart: p.start,
+          periodEnd: p.end,
+          isForecast: true,
+        };
+        for (const fc of forecast.categories) {
+          if (hiddenCategoryNames.has(fc.name)) continue;
+          row[forecastKey(fc.name)] = fc.values[i];
+        }
+        rows.push(row);
+      });
+    }
+    return rows;
+  }, [series, granularity, includeUncategorized, hiddenCategoryNames, balanceCategoryNames]);
+
+  const forecastBoundaryLabel = useMemo(() => {
+    if (!series?.forecast?.periods?.length || !series.periods.length) return null;
+    const lastActual = series.periods[series.periods.length - 1];
+    return labelFor(parseLedger(lastActual.start), granularity);
+  }, [series, granularity]);
 
   const assignedPayees = useMemo(() => new Set(categories.flatMap((c) => c.payees)), [categories]);
+  const categoriesByPayee = useMemo(() => {
+    const map = new Map();
+    for (const c of categories) {
+      for (const p of c.payees) {
+        if (!map.has(p)) map.set(p, []);
+        map.get(p).push(c);
+      }
+    }
+    return map;
+  }, [categories]);
   const poolPayees = useMemo(
-    () => (computed?.payees ?? []).filter((p) => !assignedPayees.has(p.name)),
-    [computed, assignedPayees]
+    () => (computed?.payees ?? []).filter((p) => allowMultiCategory || !assignedPayees.has(p.name)),
+    [computed, assignedPayees, allowMultiCategory]
   );
   const poolPayeesFuse = useMemo(
     () => new Fuse(poolPayees, { keys: ['name'], threshold: 0.4, ignoreLocation: true }),
@@ -250,6 +346,30 @@ export default function AnalysisView() {
   const visiblePoolPayees = useMemo(
     () => (payeeSearch.trim() ? poolPayeesFuse.search(payeeSearch).map((r) => r.item) : poolPayees),
     [payeeSearch, poolPayeesFuse, poolPayees]
+  );
+
+  const assignedAccounts = useMemo(() => new Set(categories.flatMap((c) => c.accounts)), [categories]);
+  const categoriesByAccount = useMemo(() => {
+    const map = new Map();
+    for (const c of categories) {
+      for (const a of c.accounts) {
+        if (!map.has(a)) map.set(a, []);
+        map.get(a).push(c);
+      }
+    }
+    return map;
+  }, [categories]);
+  const poolAccounts = useMemo(
+    () => (computed?.accounts ?? []).filter((a) => allowMultiCategory || !assignedAccounts.has(a.name)),
+    [computed, assignedAccounts, allowMultiCategory]
+  );
+  const poolAccountsFuse = useMemo(
+    () => new Fuse(poolAccounts, { keys: ['name'], threshold: 0.4, ignoreLocation: true }),
+    [poolAccounts]
+  );
+  const visiblePoolAccounts = useMemo(
+    () => (accountSearch.trim() ? poolAccountsFuse.search(accountSearch).map((r) => r.item) : poolAccounts),
+    [accountSearch, poolAccountsFuse, poolAccounts]
   );
   const catTotalByName = useMemo(
     () => new Map((computed?.categories ?? []).map((c) => [c.name, c.total])),
@@ -272,9 +392,12 @@ export default function AnalysisView() {
     setEndDate(todayLedger());
     setCategories([]);
     setIncludeUncategorized(true);
+    setAllowMultiCategory(false);
     setExcludedAccounts([]);
     setExcludeInput('');
+    setForecastEndDate('');
     setSelectedPayees(new Set());
+    setSelectedAccounts(new Set());
   };
 
   const handleSelectChange = async (e) => {
@@ -290,11 +413,23 @@ export default function AnalysisView() {
       setName(a.name);
       setStartDate(a.start_date || monthStartLedger());
       setEndDate(a.end_date || todayLedger());
-      setCategories(a.categories.map((c) => ({ ...c, id: `cat-${crypto.randomUUID()}` })));
+      setCategories(
+        a.categories.map((c) => ({
+          ...c,
+          accounts: c.accounts ?? [],
+          show_balance: c.show_balance ?? false,
+          forecast_enabled: c.forecast_enabled ?? false,
+          forecast_lookback: c.forecast_lookback ?? 6,
+          id: `cat-${crypto.randomUUID()}`,
+        }))
+      );
       setIncludeUncategorized(a.include_uncategorized ?? true);
+      setAllowMultiCategory(a.allow_multi_category ?? false);
       setExcludedAccounts(a.excluded_accounts ?? []);
       setExcludeInput('');
+      setForecastEndDate(a.forecast_end_date ?? '');
       setSelectedPayees(new Set());
+      setSelectedAccounts(new Set());
     } catch (e) {
       setError(e.message);
     }
@@ -309,7 +444,9 @@ export default function AnalysisView() {
       end_date: endDate,
       categories: categories.map(({ id, ...rest }) => rest),
       include_uncategorized: includeUncategorized,
+      allow_multi_category: allowMultiCategory,
       excluded_accounts: excludedAccounts,
+      forecast_end_date: forecastEndDate || null,
     };
     try {
       if (currentId) {
@@ -340,11 +477,26 @@ export default function AnalysisView() {
     }
   };
 
-  const addCategory = () => {
-    setCategories((prev) => [
-      ...prev,
-      { id: `cat-${crypto.randomUUID()}`, name: 'New Category', color_index: prev.length % 8, payees: [], hidden: false },
-    ]);
+  const addCategory = (sourceIds) => {
+    setCategories((prev) => {
+      const sources = sourceIds?.length ? prev.filter((c) => sourceIds.includes(c.id)) : [];
+      const payees = Array.from(new Set(sources.flatMap((c) => c.payees)));
+      const accounts = Array.from(new Set(sources.flatMap((c) => c.accounts)));
+      return [
+        ...prev,
+        {
+          id: `cat-${crypto.randomUUID()}`,
+          name: sources.length ? `${sources.map((c) => c.name).join(' + ')} (copy)` : 'New Category',
+          color_index: prev.length % 8,
+          payees,
+          accounts,
+          hidden: false,
+          show_balance: false,
+          forecast_enabled: false,
+          forecast_lookback: 6,
+        },
+      ];
+    });
   };
 
   const renameCategory = (id, newName) => {
@@ -355,37 +507,61 @@ export default function AnalysisView() {
     setCategories((prev) => prev.map((c) => (c.id === id ? { ...c, hidden: !c.hidden } : c)));
   };
 
+  const toggleCategoryBalance = (id) => {
+    setCategories((prev) => prev.map((c) => (c.id === id ? { ...c, show_balance: !c.show_balance } : c)));
+  };
+
+  const toggleCategoryForecast = (id) => {
+    setCategories((prev) => prev.map((c) => (c.id === id ? { ...c, forecast_enabled: !c.forecast_enabled } : c)));
+  };
+
+  const setCategoryForecastLookback = (id, lookback) => {
+    setCategories((prev) => prev.map((c) => (c.id === id ? { ...c, forecast_lookback: lookback } : c)));
+  };
+
   const deleteCategory = (id) => {
     setCategories((prev) => prev.filter((c) => c.id !== id));
   };
 
-  const unassign = (catId, payeeName) => {
+  const fieldForKind = (kind) => (kind === 'payee' ? 'payees' : 'accounts');
+
+  const unassign = (catId, kind, itemName) => {
+    const field = fieldForKind(kind);
     setCategories((prev) =>
-      prev.map((c) => (c.id === catId ? { ...c, payees: c.payees.filter((p) => p !== payeeName) } : c))
+      prev.map((c) => (c.id === catId ? { ...c, [field]: c[field].filter((n) => n !== itemName) } : c))
     );
   };
 
-  const handlePayeeClick = (name, index, e) => {
-    if (e.shiftKey && lastClickedIndex !== null) {
-      const [lo, hi] = [Math.min(lastClickedIndex, index), Math.max(lastClickedIndex, index)];
-      setSelectedPayees(new Set(visiblePoolPayees.slice(lo, hi + 1).map((p) => p.name)));
+  const handleItemClick = (kind, name, index, e) => {
+    const isPayee = kind === 'payee';
+    const selected = isPayee ? selectedPayees : selectedAccounts;
+    const setSelected = isPayee ? setSelectedPayees : setSelectedAccounts;
+    const lastIndex = isPayee ? lastClickedIndex : lastClickedAccountIndex;
+    const setLastIndex = isPayee ? setLastClickedIndex : setLastClickedAccountIndex;
+    const visibleList = isPayee ? visiblePoolPayees : visiblePoolAccounts;
+    if (e.shiftKey && lastIndex !== null) {
+      const [lo, hi] = [Math.min(lastIndex, index), Math.max(lastIndex, index)];
+      setSelected(new Set(visibleList.slice(lo, hi + 1).map((p) => p.name)));
     } else if (e.ctrlKey || e.metaKey) {
-      setSelectedPayees((prev) => {
+      setSelected((prev) => {
         const next = new Set(prev);
         next.has(name) ? next.delete(name) : next.add(name);
         return next;
       });
-      setLastClickedIndex(index);
+      setLastIndex(index);
     } else {
-      setSelectedPayees(new Set([name]));
-      setLastClickedIndex(index);
+      setSelected(new Set([name]));
+      setLastIndex(index);
     }
   };
 
-  const handleDragStart = (name, e) => {
-    const payload = selectedPayees.has(name) ? Array.from(selectedPayees) : [name];
-    draggingRef.current = payload;
-    if (!selectedPayees.has(name)) setSelectedPayees(new Set([name]));
+  const handleDragStart = (kind, name, e) => {
+    const isPayee = kind === 'payee';
+    const selected = isPayee ? selectedPayees : selectedAccounts;
+    const setSelected = isPayee ? setSelectedPayees : setSelectedAccounts;
+    const payload = selected.has(name) ? Array.from(selected) : [name];
+    draggingRef.current = { kind, names: payload };
+    if (!selected.has(name)) setSelected(new Set([name]));
     e.dataTransfer.effectAllowed = 'move';
     e.dataTransfer.setData('text/plain', payload.join(','));
   };
@@ -393,15 +569,17 @@ export default function AnalysisView() {
   const handleDropOnCategory = (catId, e) => {
     e.preventDefault();
     setDragOverTarget(null);
-    const names = draggingRef.current;
-    if (!names || !names.length) return;
+    const dragging = draggingRef.current;
+    if (!dragging || !dragging.names.length) return;
+    const { kind, names } = dragging;
+    const field = fieldForKind(kind);
     setCategories((prev) =>
       prev.map((c) => {
         if (c.id === catId) {
-          return { ...c, payees: Array.from(new Set([...c.payees, ...names])) };
+          return { ...c, [field]: Array.from(new Set([...c[field], ...names])) };
         }
-        if (c.payees.some((p) => names.includes(p))) {
-          return { ...c, payees: c.payees.filter((p) => !names.includes(p)) };
+        if (!allowMultiCategory && c[field].some((n) => names.includes(n))) {
+          return { ...c, [field]: c[field].filter((n) => !names.includes(n)) };
         }
         return c;
       })
@@ -412,15 +590,17 @@ export default function AnalysisView() {
   const handleDropOnPool = (e) => {
     e.preventDefault();
     setDragOverTarget(null);
-    const names = draggingRef.current;
-    if (!names || !names.length) return;
-    setCategories((prev) => prev.map((c) => ({ ...c, payees: c.payees.filter((p) => !names.includes(p)) })));
+    const dragging = draggingRef.current;
+    if (!dragging || !dragging.names.length) return;
+    const { kind, names } = dragging;
+    const field = fieldForKind(kind);
+    setCategories((prev) => prev.map((c) => ({ ...c, [field]: c[field].filter((n) => !names.includes(n)) })));
     draggingRef.current = null;
   };
 
   const payeeNamesForCategory = (categoryName, result) => {
     if (categoryName === 'Uncategorized') return new Set(result?.uncategorized?.payees ?? []);
-    const cat = categories.find((c) => c.name === categoryName);
+    const cat = (result?.categories ?? []).find((c) => c.name === categoryName);
     return new Set(cat?.payees ?? []);
   };
 
@@ -443,11 +623,13 @@ export default function AnalysisView() {
     if (!rowPayload) return;
     const cat = categories.find((c) => c.name === categoryName);
     const colorIndex = categoryName === 'Uncategorized' ? null : cat?.color_index ?? null;
+    const isRunning = !!cat?.show_balance;
     const requestId = ++breakdownRequestRef.current;
-    setBreakdown({ source: 'line', title: categoryName, subtitle: rowPayload.label, colorIndex, rows: [], loading: true });
+    const subtitle = isRunning ? `Through ${rowPayload.label}` : rowPayload.label;
+    setBreakdown({ source: 'line', title: categoryName, subtitle, colorIndex, rows: [], loading: true });
     try {
       const result = await api.computeAnalysis({
-        start_date: rowPayload.periodStart,
+        start_date: isRunning ? startDate : rowPayload.periodStart,
         end_date: rowPayload.periodEnd,
         categories: categories.map(({ id, ...rest }) => rest),
         excluded_accounts: excludedAccounts,
@@ -455,7 +637,7 @@ export default function AnalysisView() {
       if (breakdownRequestRef.current !== requestId) return;
       const names = payeeNamesForCategory(categoryName, result);
       const rows = (result.payees ?? []).filter((p) => names.has(p.name));
-      setBreakdown({ source: 'line', title: categoryName, subtitle: rowPayload.label, colorIndex, rows, loading: false });
+      setBreakdown({ source: 'line', title: categoryName, subtitle, colorIndex, rows, loading: false });
     } catch (e) {
       if (breakdownRequestRef.current !== requestId) return;
       setError(e.message);
@@ -527,6 +709,28 @@ export default function AnalysisView() {
           />
           Show Uncategorized slice
         </label>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <input
+            type="checkbox"
+            checked={allowMultiCategory}
+            onChange={(e) => setAllowMultiCategory(e.target.checked)}
+          />
+          Allow payees in multiple categories
+        </label>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          Forecast to{' '}
+          <input
+            type="date"
+            value={toHtmlDate(forecastEndDate)}
+            min={toHtmlDate(endDate)}
+            onChange={(e) => setForecastEndDate(toLedgerDate(e.target.value))}
+          />
+        </label>
+        {forecastEndDate && (
+          <button className="btn btn-small" onClick={() => setForecastEndDate('')}>
+            Clear forecast
+          </button>
+        )}
       </div>
 
       <div className="exclude-row">
@@ -600,6 +804,14 @@ export default function AnalysisView() {
               <YAxis tick={{ fontSize: 12, fill: 'var(--text-muted)' }} tickFormatter={formatPhpCompact} width={64} />
               <Tooltip formatter={(v) => formatPhp(v)} />
               <Legend />
+              {forecastBoundaryLabel && (
+                <ReferenceLine
+                  x={forecastBoundaryLabel}
+                  stroke="var(--text-muted)"
+                  strokeDasharray="3 3"
+                  label={{ value: 'Forecast', position: 'insideTopRight', fill: 'var(--text-muted)', fontSize: 11 }}
+                />
+              )}
               {visibleCategories.map((cat) => (
                 <Line
                   key={cat.id}
@@ -615,6 +827,23 @@ export default function AnalysisView() {
                   )}
                 />
               ))}
+              {visibleCategories
+                .filter((cat) => forecastCategoryNames.has(cat.name))
+                .map((cat) => (
+                  <Line
+                    key={`${cat.id}-forecast`}
+                    type="monotone"
+                    dataKey={forecastKey(cat.name)}
+                    name={`${cat.name} (forecast)`}
+                    stroke={seriesColor(cat.color_index)}
+                    strokeWidth={2}
+                    strokeDasharray="5 4"
+                    legendType="none"
+                    dot={false}
+                    connectNulls={false}
+                    isAnimationActive={false}
+                  />
+                ))}
               {includeUncategorized && (
                 <Line
                   type="monotone"
@@ -679,12 +908,12 @@ export default function AnalysisView() {
 
       <div className="analysis-layout">
         <div
-          className={'panel dropzone payee-pool' + (dragOverTarget === 'pool' ? ' drag-over' : '')}
+          className={'panel dropzone payee-pool' + (dragOverTarget === 'payee-pool' ? ' drag-over' : '')}
           onDragOver={(e) => {
             e.preventDefault();
-            setDragOverTarget('pool');
+            setDragOverTarget('payee-pool');
           }}
-          onDragLeave={() => setDragOverTarget((t) => (t === 'pool' ? null : t))}
+          onDragLeave={() => setDragOverTarget((t) => (t === 'payee-pool' ? null : t))}
           onDrop={handleDropOnPool}
         >
           <div className="payee-pool-header">Payees ({poolPayees.length})</div>
@@ -695,21 +924,80 @@ export default function AnalysisView() {
             value={payeeSearch}
             onChange={(e) => setPayeeSearch(e.target.value)}
           />
-          {visiblePoolPayees.map((p, i) => (
-            <div
-              key={p.name}
-              className={'payee-chip' + (selectedPayees.has(p.name) ? ' selected' : '')}
-              draggable
-              onDragStart={(e) => handleDragStart(p.name, e)}
-              onClick={(e) => handlePayeeClick(p.name, i, e)}
-            >
-              <span>{p.name}</span>
-              <span className="money">{formatPhp(p.total)}</span>
-            </div>
-          ))}
+          {visiblePoolPayees.map((p, i) => {
+            const memberOf = categoriesByPayee.get(p.name) ?? [];
+            return (
+              <div
+                key={p.name}
+                className={'payee-chip' + (selectedPayees.has(p.name) ? ' selected' : '')}
+                draggable
+                onDragStart={(e) => handleDragStart('payee', p.name, e)}
+                onClick={(e) => handleItemClick('payee', p.name, i, e)}
+              >
+                <span className="payee-chip-name">
+                  {memberOf.length > 0 && (
+                    <span className="payee-chip-dots" title={`In ${memberOf.map((c) => c.name).join(', ')}`}>
+                      {memberOf.map((c) => (
+                        <span key={c.id} className="color-swatch" style={swatchStyle(c.color_index)} />
+                      ))}
+                    </span>
+                  )}
+                  {p.name}
+                </span>
+                <span className="money">{formatPhp(p.total)}</span>
+              </div>
+            );
+          })}
           {poolPayees.length === 0 && <p className="muted" style={{ padding: 8 }}>All payees categorized.</p>}
           {poolPayees.length > 0 && visiblePoolPayees.length === 0 && (
             <p className="muted" style={{ padding: 8 }}>No payees match "{payeeSearch}".</p>
+          )}
+        </div>
+
+        <div
+          className={'panel dropzone payee-pool' + (dragOverTarget === 'account-pool' ? ' drag-over' : '')}
+          onDragOver={(e) => {
+            e.preventDefault();
+            setDragOverTarget('account-pool');
+          }}
+          onDragLeave={() => setDragOverTarget((t) => (t === 'account-pool' ? null : t))}
+          onDrop={handleDropOnPool}
+        >
+          <div className="payee-pool-header">Accounts ({poolAccounts.length})</div>
+          <input
+            type="text"
+            className="payee-search"
+            placeholder="Search accounts..."
+            value={accountSearch}
+            onChange={(e) => setAccountSearch(e.target.value)}
+          />
+          {visiblePoolAccounts.map((a, i) => {
+            const memberOf = categoriesByAccount.get(a.name) ?? [];
+            return (
+              <div
+                key={a.name}
+                className={'payee-chip' + (selectedAccounts.has(a.name) ? ' selected' : '')}
+                draggable
+                onDragStart={(e) => handleDragStart('account', a.name, e)}
+                onClick={(e) => handleItemClick('account', a.name, i, e)}
+              >
+                <span className="payee-chip-name">
+                  {memberOf.length > 0 && (
+                    <span className="payee-chip-dots" title={`In ${memberOf.map((c) => c.name).join(', ')}`}>
+                      {memberOf.map((c) => (
+                        <span key={c.id} className="color-swatch" style={swatchStyle(c.color_index)} />
+                      ))}
+                    </span>
+                  )}
+                  {a.name}
+                </span>
+                <span className="money">{formatPhp(a.total)}</span>
+              </div>
+            );
+          })}
+          {poolAccounts.length === 0 && <p className="muted" style={{ padding: 8 }}>All accounts categorized.</p>}
+          {poolAccounts.length > 0 && visiblePoolAccounts.length === 0 && (
+            <p className="muted" style={{ padding: 8 }}>No accounts match "{accountSearch}".</p>
           )}
         </div>
 
@@ -728,14 +1016,52 @@ export default function AnalysisView() {
               onDrop={(e) => handleDropOnCategory(cat.id, e)}
               onRename={(newName) => renameCategory(cat.id, newName)}
               onToggleHidden={() => toggleCategoryHidden(cat.id)}
+              onToggleBalance={() => toggleCategoryBalance(cat.id)}
+              onToggleForecast={() => toggleCategoryForecast(cat.id)}
+              onForecastLookbackChange={(n) => setCategoryForecastLookback(cat.id, n)}
               onDelete={() => deleteCategory(cat.id)}
-              onUnassign={(p) => unassign(cat.id, p)}
+              onUnassign={(kind, name) => unassign(cat.id, kind, name)}
               onChipDragStart={handleDragStart}
             />
           ))}
-          <button className="new-category-card" onClick={addCategory}>
-            + New category
-          </button>
+          <div className="new-category-card">
+            <button className="new-category-btn" onClick={() => addCategory()}>
+              + New category
+            </button>
+            {allowMultiCategory && categories.length > 0 && (
+              <div className="copy-category-control">
+                <div
+                  className="copy-category-list"
+                  title="Base the new category off one or more existing ones, copying their payees and accounts"
+                >
+                  {categories.map((c) => (
+                    <label key={c.id} className="copy-category-option">
+                      <input
+                        type="checkbox"
+                        checked={copySourceIds.includes(c.id)}
+                        onChange={() =>
+                          setCopySourceIds((prev) =>
+                            prev.includes(c.id) ? prev.filter((id) => id !== c.id) : [...prev, c.id]
+                          )
+                        }
+                      />
+                      {c.name}
+                    </label>
+                  ))}
+                </div>
+                <button
+                  className="btn btn-small"
+                  disabled={copySourceIds.length === 0}
+                  onClick={() => {
+                    addCategory(copySourceIds);
+                    setCopySourceIds([]);
+                  }}
+                >
+                  Copy from selected
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>
