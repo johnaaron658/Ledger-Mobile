@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import Fuse from 'fuse.js';
 import { api } from '../api';
-import { formatPhp } from '../format';
+import { formatMoney } from '../format';
 import FuzzyCombobox from './FuzzyCombobox';
 
 function SummaryStats({ title, budgeted, spent, over, pct }) {
@@ -10,16 +11,16 @@ function SummaryStats({ title, budgeted, spent, over, pct }) {
       <div style={{ display: 'flex', gap: 32, marginBottom: 12 }}>
         <div>
           <div className="muted" style={{ fontSize: 12 }}>Budgeted</div>
-          <div style={{ fontSize: 22, fontWeight: 600 }}>{formatPhp(budgeted)}</div>
+          <div style={{ fontSize: 22, fontWeight: 600 }}>{formatMoney(budgeted)}</div>
         </div>
         <div>
           <div className="muted" style={{ fontSize: 12 }}>Spent</div>
-          <div style={{ fontSize: 22, fontWeight: 600 }}>{formatPhp(spent)}</div>
+          <div style={{ fontSize: 22, fontWeight: 600 }}>{formatMoney(spent)}</div>
         </div>
         <div>
           <div className="muted" style={{ fontSize: 12 }}>{over ? 'Over' : 'Remaining'}</div>
           <div style={{ fontSize: 22, fontWeight: 600, color: over ? 'var(--danger)' : 'var(--accent)' }}>
-            {formatPhp(Math.abs(budgeted - spent))}
+            {formatMoney(Math.abs(budgeted - spent))}
           </div>
         </div>
       </div>
@@ -118,7 +119,7 @@ function BudgetCard({ b, onSave, defaultCurrency }) {
 
   return (
     <div className="budget-card">
-      <h3>{b.account.replace(/^Expenses:/, '')}</h3>
+      <h3 title={b.account}>{b.account.split(':').pop()}</h3>
       <div className="muted" style={{ fontSize: 12 }}>{b.active_period ?? 'No active budget'}</div>
 
       {envelope ? (
@@ -129,19 +130,19 @@ function BudgetCard({ b, onSave, defaultCurrency }) {
           <div className="budget-numbers">
             <span className={over ? '' : 'muted'}>
               {over
-                ? `${formatPhp(envelope.spent - envelope.budgeted)} over`
-                : `${formatPhp(envelope.remaining)} left of ${formatPhp(envelope.budgeted)}`}
+                ? `${formatMoney(envelope.spent - envelope.budgeted)} over`
+                : `${formatMoney(envelope.remaining)} left of ${formatMoney(envelope.budgeted)}`}
             </span>
           </div>
           <div className="budget-numbers">
             <span>
-              {`Budgeted amount: ${formatPhp(amount)}`}
+              {`Budgeted amount: ${formatMoney(amount)}`}
             </span>
           </div>
         </>
       ) : (
         <div className="muted" style={{ fontSize: 13 }}>
-          Spent this month: {formatPhp(b.spent)} (no active budget)
+          Spent this month: {formatMoney(b.spent)} (no active budget)
         </div>
       )}
 
@@ -216,6 +217,68 @@ function BudgetCard({ b, onSave, defaultCurrency }) {
             </li>
           ))}
         </ul>
+      )}
+    </div>
+  );
+}
+
+function buildBudgetTree(budgets) {
+  const root = { name: '', full_name: '', children: new Map(), budget: null };
+  for (const b of budgets) {
+    let node = root;
+    let path = '';
+    for (const part of b.account.split(':')) {
+      path = path ? `${path}:${part}` : part;
+      if (!node.children.has(part)) {
+        node.children.set(part, { name: part, full_name: path, children: new Map(), budget: null });
+      }
+      node = node.children.get(part);
+    }
+    node.budget = b;
+  }
+  return root;
+}
+
+function BudgetGroupNode({ node, depth, onSave, defaultCurrency, searchActive }) {
+  const [collapsed, setCollapsed] = useState(depth >= 1);
+  const open = searchActive || !collapsed;
+
+  const childArray = [...node.children.values()].sort((a, b) => a.name.localeCompare(b.name));
+  const subgroups = childArray.filter((c) => c.children.size > 0);
+  const leaves = childArray.filter((c) => c.children.size === 0 && c.budget);
+  const hasChildren = childArray.length > 0;
+  const cards = node.budget ? [node.budget, ...leaves.map((c) => c.budget)] : leaves.map((c) => c.budget);
+
+  return (
+    <div className="budget-group">
+      <div
+        className="budget-group-header"
+        style={{ paddingLeft: depth * 16 }}
+        onClick={() => hasChildren && setCollapsed((c) => !c)}
+      >
+        <span className="disclosure">{hasChildren ? (open ? '▾' : '▸') : ''}</span>
+        <span className="budget-group-name">{node.name}</span>
+      </div>
+      {open && (
+        <div className="budget-group-body" style={{ paddingLeft: (depth + 1) * 16 }}>
+          {cards.length > 0 && (
+            <div className="budget-grid" style={{ marginBottom: subgroups.length ? 10 : 0 }}>
+              {cards.map((b) => (
+                <BudgetCard key={b.account} b={b} onSave={onSave} defaultCurrency={defaultCurrency} />
+              ))}
+            </div>
+          )}
+          {subgroups.map((c) => (
+            <BudgetGroupNode
+              key={c.full_name}
+              node={c}
+              depth={depth + 1}
+              onSave={onSave}
+              defaultCurrency={defaultCurrency}
+              searchActive={searchActive}
+            />
+          ))}
+        </div>
       )}
     </div>
   );
@@ -317,6 +380,7 @@ export default function BudgetsView() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [addingBudget, setAddingBudget] = useState(false);
+  const [search, setSearch] = useState('');
 
   const load = async () => {
     setLoading(true);
@@ -356,6 +420,14 @@ export default function BudgetsView() {
 
   const budgetedAccounts = new Set(budgets.map((b) => b.account));
   const newBudgetAccountNames = accountNames.filter((a) => !budgetedAccounts.has(a));
+
+  const fuse = useMemo(() => new Fuse(budgets, { keys: ['account'], threshold: 0.4, ignoreLocation: true }), [budgets]);
+  const filteredBudgets = useMemo(() => {
+    if (!search.trim()) return budgets;
+    return fuse.search(search).map((r) => r.item);
+  }, [search, fuse, budgets]);
+  const budgetTree = useMemo(() => buildBudgetTree(filteredBudgets), [filteredBudgets]);
+  const topGroups = [...budgetTree.children.values()].sort((a, b) => a.name.localeCompare(b.name));
 
   const addExcludedAccount = async (account) => {
     if (excludedAccounts.includes(account)) return;
@@ -406,6 +478,12 @@ export default function BudgetsView() {
       {error && <div className="error-banner">{error}</div>}
 
       <div className="toolbar">
+        <input
+          className="search-input"
+          placeholder="Fuzzy search budgets…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
         <button className="btn btn-primary" onClick={() => setAddingBudget(true)} disabled={addingBudget}>
           + New budget
         </button>
@@ -440,19 +518,33 @@ export default function BudgetsView() {
         <SummaryStats title="This month" budgeted={monthTotals.budgeted} spent={monthTotals.spent} over={monthOver} pct={monthPct} />
       </div>
 
-      <div className="budget-grid">
-        {addingBudget && (
+      {addingBudget && (
+        <div className="budget-grid" style={{ marginBottom: 14 }}>
           <NewBudgetForm
             accountNames={newBudgetAccountNames}
             defaultCurrency={defaultCurrency}
             onCreate={handleCreate}
             onCancel={() => setAddingBudget(false)}
           />
-        )}
-        {budgets.map((b) => (
-          <BudgetCard key={b.account} b={b} onSave={handleSave} defaultCurrency={defaultCurrency} />
-        ))}
-      </div>
+        </div>
+      )}
+
+      {filteredBudgets.length === 0 ? (
+        <p className="muted">No budgets match "{search}".</p>
+      ) : (
+        <div className="budget-tree">
+          {topGroups.map((node) => (
+            <BudgetGroupNode
+              key={node.full_name}
+              node={node}
+              depth={0}
+              onSave={handleSave}
+              defaultCurrency={defaultCurrency}
+              searchActive={!!search.trim()}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 }

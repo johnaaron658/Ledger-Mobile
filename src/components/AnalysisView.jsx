@@ -15,7 +15,7 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 import { api } from '../api';
-import { formatPhp } from '../format';
+import { formatMoney, formatMoneyCompact } from '../format';
 import { labelFor, parseLedger } from '../dateUtils';
 import FuzzyCombobox from './FuzzyCombobox';
 import DateRangeSlider from './DateRangeSlider';
@@ -39,13 +39,6 @@ function seriesColor(colorIndex) {
 }
 function swatchStyle(colorIndex) {
   return { background: seriesColor(colorIndex) };
-}
-function formatPhpCompact(value) {
-  const abs = Math.abs(value);
-  const sign = value < 0 ? '-' : '';
-  if (abs >= 1_000_000) return `${sign}₱${(abs / 1_000_000).toFixed(1)}M`;
-  if (abs >= 1000) return `${sign}₱${(abs / 1000).toFixed(1)}k`;
-  return `${sign}₱${abs.toFixed(0)}`;
 }
 function ClickableDot({ cx, cy, stroke, payload, dataKey, onPointClick, r = 4 }) {
   if (cx == null || cy == null) return null;
@@ -97,7 +90,7 @@ function CategoryCard({ cat, total, dragOver, onDragOver, onDragLeave, onDrop, o
         </button>
       </div>
       <div className="category-total money">
-        {formatPhp(total)}
+        {formatMoney(total)}
         {cat.hidden && <span className="category-hidden-badge">hidden from charts</span>}
       </div>
       <label className="category-balance-toggle">
@@ -832,7 +825,7 @@ export default function AnalysisView() {
                 ))}
               </Pie>
               <Legend />
-              <Tooltip formatter={(v) => formatPhp(v)} />
+              <Tooltip formatter={(v) => formatMoney(v)} />
             </PieChart>
           </ResponsiveContainer>
         ) : (
@@ -854,8 +847,8 @@ export default function AnalysisView() {
                 interval="preserveStartEnd"
                 minTickGap={24}
               />
-              <YAxis tick={{ fontSize: 12, fill: 'var(--text-muted)' }} tickFormatter={formatPhpCompact} width={64} />
-              <Tooltip formatter={(v) => formatPhp(v)} />
+              <YAxis tick={{ fontSize: 12, fill: 'var(--text-muted)' }} tickFormatter={formatMoneyCompact} width={64} />
+              <Tooltip formatter={(v) => formatMoney(v)} />
               <Legend />
               {forecastBoundaryLabel && (
                 <ReferenceLine
@@ -950,7 +943,7 @@ export default function AnalysisView() {
                 {breakdown.rows.map((p) => (
                   <tr key={p.name}>
                     <td>{p.name}</td>
-                    <td className="money">{formatPhp(p.total)}</td>
+                    <td className="money">{formatMoney(p.total)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -997,7 +990,7 @@ export default function AnalysisView() {
                   )}
                   {p.name}
                 </span>
-                <span className="money">{formatPhp(p.total)}</span>
+                <span className="money">{formatMoney(p.total)}</span>
               </div>
             );
           })}
@@ -1044,7 +1037,7 @@ export default function AnalysisView() {
                   )}
                   {a.name}
                 </span>
-                <span className="money">{formatPhp(a.total)}</span>
+                <span className="money">{formatMoney(a.total)}</span>
               </div>
             );
           })}

@@ -342,6 +342,32 @@ tbody tr:hover {
   font-weight: 600;
 }
 
+.budget-tree {
+  font-size: 14px;
+}
+
+.budget-group-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 4px;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.budget-group-header:hover {
+  background: var(--bg-alt);
+}
+
+.budget-group-name {
+  flex: 1;
+}
+
+.budget-group-body {
+  margin-bottom: 4px;
+}
+
 /* --- Accounts --- */
 
 .account-tree {

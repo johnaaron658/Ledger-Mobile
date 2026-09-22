@@ -1,4 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { api } from './api';
+import { setCurrencySymbol } from './format';
 import TransactionsView from './components/TransactionsView';
 import BudgetsView from './components/BudgetsView';
 import AccountsView from './components/AccountsView';
@@ -18,6 +20,17 @@ const TABS = [
 
 export default function App() {
   const [tab, setTab] = useState('transactions');
+  // Load the display currency before any view renders money, so nothing flashes the
+  // default symbol first. Views re-read it via format.js, so no prop threading.
+  const [currencyLoaded, setCurrencyLoaded] = useState(false);
+
+  useEffect(() => {
+    api
+      .getAppSettings()
+      .then((settings) => setCurrencySymbol(settings.default_currency))
+      .catch(() => {}) // fall back to format.js's default symbol
+      .finally(() => setCurrencyLoaded(true));
+  }, []);
 
   return (
     <div className="app">
@@ -36,12 +49,13 @@ export default function App() {
         </nav>
       </header>
       <main className="app-main">
-        {tab === 'transactions' && <TransactionsView />}
-        {tab === 'budgets' && <BudgetsView />}
-        {tab === 'accounts' && <AccountsView />}
-        {tab === 'analysis' && <AnalysisView />}
-        {tab === 'automations' && <AutomationsView />}
-        {tab === 'commodities' && <CommoditiesView />}
+        {!currencyLoaded && <p className="muted">Loading…</p>}
+        {currencyLoaded && tab === 'transactions' && <TransactionsView />}
+        {currencyLoaded && tab === 'budgets' && <BudgetsView />}
+        {currencyLoaded && tab === 'accounts' && <AccountsView />}
+        {currencyLoaded && tab === 'analysis' && <AnalysisView />}
+        {currencyLoaded && tab === 'automations' && <AutomationsView />}
+        {currencyLoaded && tab === 'commodities' && <CommoditiesView />}
       </main>
     </div>
   );

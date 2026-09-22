@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import Fuse from 'fuse.js';
 import { api } from '../api';
+import { setCurrencySymbol } from '../format';
 import TransactionForm from './TransactionForm';
 
 export default function TransactionsView() {
@@ -39,6 +40,7 @@ export default function TransactionsView() {
   const saveDefaultCurrency = async () => {
     const next = currencyInput.trim();
     setDefaultCurrency(next);
+    setCurrencySymbol(next); // every view formats money with this
     await api.updateAppSettings({ default_currency: next });
   };
 

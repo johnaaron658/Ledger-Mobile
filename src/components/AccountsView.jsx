@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
+import Fuse from 'fuse.js';
 import { LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer } from 'recharts';
 import { api } from '../api';
-import { formatPhp } from '../format';
+import { formatMoney } from '../format';
 import { parseLedger, formatLedger } from '../dateUtils';
 import TransactionForm from './TransactionForm';
 import DateRangeSlider from './DateRangeSlider';
@@ -10,9 +11,13 @@ function todayLedger() {
   return formatLedger(new Date());
 }
 
-function AccountNode({ node, depth, selected, onSelect }) {
+function AccountNode({ node, depth, selected, onSelect, expandAll }) {
   const [open, setOpen] = useState(depth < 1);
   const hasChildren = node.children.length > 0;
+
+  useEffect(() => {
+    if (expandAll) setOpen(true);
+  }, [expandAll]);
 
   return (
     <div className="account-node">
@@ -31,12 +36,19 @@ function AccountNode({ node, depth, selected, onSelect }) {
           {hasChildren ? (open ? '▾' : '▸') : ''}
         </span>
         <span className="account-name">{node.name}</span>
-        <span className="money">{formatPhp(node.balance_php)}</span>
+        <span className="money">{formatMoney(node.balance_php)}</span>
       </div>
       {open && hasChildren && (
         <div className="account-node-children">
           {node.children.map((c) => (
-            <AccountNode key={c.full_name} node={c} depth={depth + 1} selected={selected} onSelect={onSelect} />
+            <AccountNode
+              key={c.full_name}
+              node={c}
+              depth={depth + 1}
+              selected={selected}
+              onSelect={onSelect}
+              expandAll={expandAll}
+            />
           ))}
         </div>
       )}
@@ -49,6 +61,7 @@ export default function AccountsView() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [selected, setSelected] = useState(null);
+  const [accountFilter, setAccountFilter] = useState('');
   const [history, setHistory] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(false);
 
@@ -112,6 +125,37 @@ export default function AccountsView() {
       }
     })();
   }, [selected]);
+
+  const allAccountFullNames = useMemo(() => {
+    if (!tree) return [];
+    const names = [];
+    const walk = (node) => {
+      for (const c of node.children) {
+        names.push(c.full_name);
+        walk(c);
+      }
+    };
+    walk(tree);
+    return names;
+  }, [tree]);
+
+  const accountFuse = useMemo(
+    () => new Fuse(allAccountFullNames, { threshold: 0.4, ignoreLocation: true }),
+    [allAccountFullNames]
+  );
+
+  const filteredTree = useMemo(() => {
+    if (!tree || !accountFilter.trim()) return tree;
+    const matched = new Set(accountFuse.search(accountFilter).map((r) => r.item));
+    const filterNode = (node) => {
+      const children = node.children.map(filterNode).filter(Boolean);
+      if (matched.has(node.full_name) || children.length > 0) {
+        return { ...node, children };
+      }
+      return null;
+    };
+    return { ...tree, children: tree.children.map(filterNode).filter(Boolean) };
+  }, [tree, accountFilter, accountFuse]);
 
   const payees = useMemo(() => {
     const counts = new Map();
@@ -268,7 +312,7 @@ export default function AccountsView() {
                     <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
                     <XAxis dataKey="date" tick={{ fontSize: 10 }} minTickGap={40} />
                     <YAxis tick={{ fontSize: 11 }} />
-                    <Tooltip formatter={(v) => formatPhp(v)} labelFormatter={(l, p) => `${l}${p?.[0]?.payload?.payee ? ` — ${p[0].payload.payee}` : ''}`} />
+                    <Tooltip formatter={(v) => formatMoney(v)} labelFormatter={(l, p) => `${l}${p?.[0]?.payload?.payee ? ` — ${p[0].payload.payee}` : ''}`} />
                     <Line
                       type="stepAfter"
                       dataKey="running_balance"
@@ -348,15 +392,32 @@ export default function AccountsView() {
       )}
 
       <div className="toolbar">
+        <input
+          className="search-input"
+          placeholder="Fuzzy search accounts…"
+          value={accountFilter}
+          onChange={(e) => setAccountFilter(e.target.value)}
+        />
         <button className="btn btn-primary" onClick={() => setEditing('new-account')}>
           + New account
         </button>
       </div>
 
       <div className="panel account-tree" style={{ padding: '8px 12px' }}>
-        {tree.children.map((c) => (
-          <AccountNode key={c.full_name} node={c} depth={0} selected={selected} onSelect={setSelected} />
-        ))}
+        {filteredTree.children.length === 0 ? (
+          <p className="muted">No accounts match "{accountFilter}".</p>
+        ) : (
+          filteredTree.children.map((c) => (
+            <AccountNode
+              key={c.full_name}
+              node={c}
+              depth={0}
+              selected={selected}
+              onSelect={setSelected}
+              expandAll={!!accountFilter.trim()}
+            />
+          ))
+        )}
       </div>
 
       {editing && (
