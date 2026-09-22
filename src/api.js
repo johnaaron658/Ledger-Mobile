@@ -23,10 +23,19 @@ export const api = {
     request('GET', `/api/accounts/history?account=${encodeURIComponent(account)}`),
 
   getBudgets: () => request('GET', '/api/budgets'),
-  updateBudget: (account, amount_raw) =>
-    request('PUT', `/api/budgets/${encodeURIComponent(account)}`, { amount_raw }),
+  addBudgetPeriod: (account, period_text, amount_raw) =>
+    request('PUT', `/api/budgets/${encodeURIComponent(account)}`, { period_text, amount_raw }),
+  createBudget: (account, period_text, amount_raw) =>
+    request('POST', '/api/budgets', { account, period_text, amount_raw }),
   getBudgetSettings: () => request('GET', '/api/budget-settings'),
   updateBudgetSettings: (settings) => request('PUT', '/api/budget-settings', settings),
+
+  getAppSettings: () => request('GET', '/api/app-settings'),
+  updateAppSettings: (settings) => request('PUT', '/api/app-settings', settings),
+
+  getCommodities: () => request('GET', '/api/commodities'),
+  addCommodityPrice: (price) => request('POST', '/api/commodities/prices', price),
+  deleteCommodity: (commodity) => request('DELETE', `/api/commodities/${encodeURIComponent(commodity)}`),
 
   getAnalyses: () => request('GET', '/api/analyses'),
   getAnalysis: (id) => request('GET', `/api/analyses/${encodeURIComponent(id)}`),
@@ -50,4 +59,16 @@ export const api = {
       rendered_override: renderedOverride ?? null,
     }),
   skipPendingAutomation: (id) => request('DELETE', `/api/automations/pending/${encodeURIComponent(id)}`),
+  moveAutomation: (id, { groupId, beforeId } = {}) =>
+    request('PUT', `/api/automations/${encodeURIComponent(id)}/group`, {
+      group_id: groupId ?? null,
+      before_id: beforeId ?? null,
+    }),
+
+  getAutomationGroups: () => request('GET', '/api/automation-groups'),
+  createAutomationGroup: (name) => request('POST', '/api/automation-groups', { name }),
+  renameAutomationGroup: (id, name) =>
+    request('PUT', `/api/automation-groups/${encodeURIComponent(id)}`, { name }),
+  deleteAutomationGroup: (id) => request('DELETE', `/api/automation-groups/${encodeURIComponent(id)}`),
+  reorderAutomationGroups: (order) => request('PUT', '/api/automation-groups/reorder', { order }),
 };

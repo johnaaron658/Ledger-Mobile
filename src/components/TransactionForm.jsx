@@ -1,24 +1,49 @@
 import { useState } from 'react';
 import FuzzyCombobox from './FuzzyCombobox';
 
-function emptyPosting() {
-  return { account: '', amount_raw: '' };
+const BARE_NUMBER_RE = /^-?[\d,]+\.?\d*$/;
+
+function emptyPosting(defaultCurrency) {
+  return { account: '', amount_raw: defaultCurrency ?? '' };
 }
 
-export default function TransactionForm({ initial, initialDate, accountNames, payees, onSave, onClose, onDelete, saving, error }) {
+// Untouched prefilled currency (no digits) means "leave blank, let ledger balance it".
+// A bare number (no currency symbol/code at all) gets the default currency prepended.
+function normalizeAmount(raw, defaultCurrency) {
+  const trimmed = raw.trim();
+  if (!/\d/.test(trimmed)) return '';
+  if (defaultCurrency && BARE_NUMBER_RE.test(trimmed)) return `${defaultCurrency}${trimmed}`;
+  return trimmed;
+}
+
+export default function TransactionForm({
+  initial,
+  initialDate,
+  initialPayee,
+  initialPostings,
+  title,
+  accountNames,
+  payees,
+  defaultCurrency,
+  onSave,
+  onClose,
+  onDelete,
+  saving,
+  error,
+}) {
   const [date, setDate] = useState(initial?.date ?? initialDate ?? new Date().toISOString().slice(0, 10).replace(/-/g, '/'));
-  const [payee, setPayee] = useState(initial?.payee ?? '');
+  const [payee, setPayee] = useState(initial?.payee ?? initialPayee ?? '');
   const [postings, setPostings] = useState(
     initial?.postings?.length
       ? initial.postings.map((p) => ({ account: p.account, amount_raw: p.amount_raw }))
-      : [emptyPosting(), emptyPosting()]
+      : initialPostings ?? [emptyPosting(defaultCurrency), emptyPosting(defaultCurrency)]
   );
 
   const updatePosting = (idx, field, value) => {
     setPostings((prev) => prev.map((p, i) => (i === idx ? { ...p, [field]: value } : p)));
   };
 
-  const addPosting = () => setPostings((prev) => [...prev, emptyPosting()]);
+  const addPosting = () => setPostings((prev) => [...prev, emptyPosting(defaultCurrency)]);
   const removePosting = (idx) => setPostings((prev) => prev.filter((_, i) => i !== idx));
 
   const handleSubmit = (e) => {
@@ -26,14 +51,16 @@ export default function TransactionForm({ initial, initialDate, accountNames, pa
     onSave({
       date,
       payee,
-      postings: postings.filter((p) => p.account.trim()),
+      postings: postings
+        .filter((p) => p.account.trim())
+        .map((p) => ({ ...p, amount_raw: normalizeAmount(p.amount_raw, defaultCurrency) })),
     });
   };
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <h3>{initial ? 'Edit transaction' : 'Add transaction'}</h3>
+        <h3>{title ?? (initial ? 'Edit transaction' : 'Add transaction')}</h3>
         {error && <div className="error-banner">{error}</div>}
         <form onSubmit={handleSubmit}>
           <div className="form-row">

@@ -13,19 +13,33 @@ export default function TransactionsView() {
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState(null);
   const [note, setNote] = useState(null);
+  const [defaultCurrency, setDefaultCurrency] = useState('');
+  const [currencyInput, setCurrencyInput] = useState('');
 
   const load = async () => {
     setLoading(true);
     setError(null);
     try {
-      const [txns, names] = await Promise.all([api.getTransactions(), api.getAccountNames()]);
+      const [txns, names, settings] = await Promise.all([
+        api.getTransactions(),
+        api.getAccountNames(),
+        api.getAppSettings(),
+      ]);
       setTransactions(txns);
       setAccountNames(names);
+      setDefaultCurrency(settings.default_currency);
+      setCurrencyInput(settings.default_currency);
     } catch (e) {
       setError(e.message);
     } finally {
       setLoading(false);
     }
+  };
+
+  const saveDefaultCurrency = async () => {
+    const next = currencyInput.trim();
+    setDefaultCurrency(next);
+    await api.updateAppSettings({ default_currency: next });
   };
 
   useEffect(() => {
@@ -108,6 +122,15 @@ export default function TransactionsView() {
           + Add transaction
         </button>
       </div>
+      <div className="toolbar">
+        <span className="muted" style={{ fontSize: 13 }}>Default currency (auto-filled on amount fields):</span>
+        <input
+          style={{ width: 70, padding: '4px 8px', border: '1px solid var(--border)', borderRadius: 6 }}
+          value={currencyInput}
+          onChange={(e) => setCurrencyInput(e.target.value)}
+          onBlur={saveDefaultCurrency}
+        />
+      </div>
       <div className="panel">
         {loading ? (
           <p style={{ padding: 16 }}>Loading…</p>
@@ -161,6 +184,7 @@ export default function TransactionsView() {
           initial={editing === 'new' ? null : editing}
           accountNames={accountNames}
           payees={payees}
+          defaultCurrency={defaultCurrency}
           onSave={handleSave}
           onClose={() => {
             setEditing(null);

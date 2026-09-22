@@ -9,7 +9,22 @@ const PERIOD_LABELS = {
   quarterly: 'Quarterly',
   semiannually: 'Semi-annually',
   yearly: 'Yearly',
+  custom: 'Custom',
 };
+
+const CUSTOM_UNIT_LABELS = {
+  days: 'Days',
+  weeks: 'Weeks',
+  months: 'Months',
+  years: 'Years',
+};
+
+function periodLabel(automation) {
+  if (automation.period !== 'custom') return PERIOD_LABELS[automation.period];
+  const n = automation.custom_interval ?? 1;
+  const unit = CUSTOM_UNIT_LABELS[automation.custom_unit]?.toLowerCase() ?? 'months';
+  return `Every ${n} ${n === 1 ? unit.replace(/s$/, '') : unit}`;
+}
 
 const VAR_RE = /\$\[(\w+)\]/g;
 
@@ -42,7 +57,16 @@ function todayHtml() {
 const TEMPLATE_PLACEHOLDER = '$[date] $[payee]\n    Expenses:Rent    $[amount]\n    $[account]';
 
 function emptyForm() {
-  return { name: '', period: 'monthly', start_date: todayHtml(), end_date: '', template: '', variable_defaults: {} };
+  return {
+    name: '',
+    period: 'monthly',
+    custom_interval: 1,
+    custom_unit: 'months',
+    start_date: todayHtml(),
+    end_date: '',
+    template: '',
+    variable_defaults: {},
+  };
 }
 
 function VariableValueInput({ name, value, onChange, accountNames, payees }) {
@@ -74,6 +98,8 @@ function AutomationForm({ initial, accountNames, payees, onSave, onCancel }) {
       await onSave({
         name: form.name.trim(),
         period: form.period,
+        custom_interval: form.period === 'custom' ? Math.max(1, Number(form.custom_interval) || 1) : null,
+        custom_unit: form.period === 'custom' ? form.custom_unit : null,
         start_date: toLedgerDate(form.start_date),
         end_date: form.end_date ? toLedgerDate(form.end_date) : null,
         template: form.template,
@@ -104,6 +130,27 @@ function AutomationForm({ initial, accountNames, payees, onSave, onCancel }) {
             ))}
           </select>
         </div>
+        {form.period === 'custom' && (
+          <div className="form-row">
+            <label>Every</label>
+            <div className="automation-custom-period">
+              <input
+                type="number"
+                min={1}
+                value={form.custom_interval}
+                onChange={set('custom_interval')}
+                required
+              />
+              <select value={form.custom_unit} onChange={set('custom_unit')}>
+                {Object.entries(CUSTOM_UNIT_LABELS).map(([k, label]) => (
+                  <option key={k} value={k}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+        )}
       </div>
       <div className="automation-form-row">
         <div className="form-row">
@@ -167,12 +214,62 @@ function AutomationForm({ initial, accountNames, payees, onSave, onCancel }) {
   );
 }
 
-function AutomationCard({ automation, onEdit, onDelete }) {
+const AUTOMATION_DND_TYPE = 'application/x-automation-id';
+const GROUP_DND_TYPE = 'application/x-group-id';
+const COLLAPSED_GROUPS_KEY = 'automations.collapsedGroups';
+const UNGROUPED_KEY = '__ungrouped__';
+
+function loadCollapsedGroups() {
+  try {
+    const raw = localStorage.getItem(COLLAPSED_GROUPS_KEY);
+    return raw ? new Set(JSON.parse(raw)) : new Set();
+  } catch {
+    return new Set();
+  }
+}
+
+function saveCollapsedGroups(set) {
+  try {
+    localStorage.setItem(COLLAPSED_GROUPS_KEY, JSON.stringify([...set]));
+  } catch {
+    // ignore (e.g. private browsing)
+  }
+}
+
+function AutomationCard({ automation, onEdit, onDelete, onDragAutomation }) {
+  const [dragOver, setDragOver] = useState(false);
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOver(false);
+    const draggedId = e.dataTransfer.getData(AUTOMATION_DND_TYPE);
+    if (draggedId && draggedId !== automation.id) {
+      onDragAutomation(draggedId, automation.group_id ?? null, automation.id);
+    }
+  };
+
   return (
-    <div className="panel automation-card" style={{ padding: 14 }}>
+    <div
+      className={'panel automation-card' + (dragOver ? ' automation-drop-target' : '')}
+      style={{ padding: 14 }}
+      draggable
+      onDragStart={(e) => {
+        e.dataTransfer.setData(AUTOMATION_DND_TYPE, automation.id);
+        e.dataTransfer.effectAllowed = 'move';
+      }}
+      onDragOver={(e) => {
+        if (e.dataTransfer.types.includes(AUTOMATION_DND_TYPE)) e.preventDefault();
+      }}
+      onDragEnter={(e) => {
+        if (e.dataTransfer.types.includes(AUTOMATION_DND_TYPE)) setDragOver(true);
+      }}
+      onDragLeave={() => setDragOver(false)}
+      onDrop={handleDrop}
+    >
       <div className="automation-card-header">
         <h3>{automation.name}</h3>
-        <span className="muted">{PERIOD_LABELS[automation.period]}</span>
+        <span className="muted">{periodLabel(automation)}</span>
       </div>
       <div className="muted" style={{ fontSize: 13 }}>
         {automation.start_date}
@@ -195,6 +292,121 @@ function AutomationCard({ automation, onEdit, onDelete }) {
           Delete
         </button>
       </div>
+    </div>
+  );
+}
+
+function GroupSection({
+  group,
+  automations,
+  onEdit,
+  onDelete,
+  onDragAutomation,
+  onRename,
+  onDeleteGroup,
+  onDragGroup,
+  hideHeader,
+  collapsed,
+  onToggleCollapsed,
+}) {
+  const [dragOver, setDragOver] = useState(false);
+  const [nameDraft, setNameDraft] = useState(group?.name ?? '');
+
+  const isUngrouped = group === null;
+
+  // Keep the input in sync when the group's name changes from elsewhere (e.g. a reload).
+  useEffect(() => {
+    setNameDraft(group?.name ?? '');
+  }, [group?.id, group?.name]);
+
+  // Debounced persist, so typing feels instant without firing a request per keystroke.
+  useEffect(() => {
+    if (isUngrouped) return;
+    const trimmed = nameDraft.trim();
+    if (!trimmed || trimmed === group.name) return;
+    const handle = setTimeout(() => onRename(group.id, trimmed), 500);
+    return () => clearTimeout(handle);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nameDraft]);
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    setDragOver(false);
+    const draggedAutomationId = e.dataTransfer.getData(AUTOMATION_DND_TYPE);
+    if (draggedAutomationId) {
+      onDragAutomation(draggedAutomationId, isUngrouped ? null : group.id, null);
+      return;
+    }
+    const draggedGroupId = e.dataTransfer.getData(GROUP_DND_TYPE);
+    if (draggedGroupId && !isUngrouped && draggedGroupId !== group.id) {
+      onDragGroup(draggedGroupId, group.id);
+    }
+  };
+
+  return (
+    <div
+      className={'automation-group' + (dragOver ? ' automation-drop-target' : '')}
+      onDragOver={(e) => {
+        if (e.dataTransfer.types.includes(AUTOMATION_DND_TYPE) || e.dataTransfer.types.includes(GROUP_DND_TYPE)) {
+          e.preventDefault();
+        }
+      }}
+      onDragEnter={(e) => {
+        if (e.dataTransfer.types.includes(AUTOMATION_DND_TYPE) || e.dataTransfer.types.includes(GROUP_DND_TYPE)) {
+          setDragOver(true);
+        }
+      }}
+      onDragLeave={() => setDragOver(false)}
+      onDrop={handleDrop}
+    >
+      {!hideHeader && (
+        <div
+          className="automation-group-header"
+          draggable={!isUngrouped}
+          onDragStart={(e) => {
+            if (isUngrouped) return;
+            e.dataTransfer.setData(GROUP_DND_TYPE, group.id);
+            e.dataTransfer.effectAllowed = 'move';
+          }}
+        >
+          <button
+            type="button"
+            className="automation-group-collapse-btn"
+            onClick={onToggleCollapsed}
+            aria-label={collapsed ? 'Expand group' : 'Collapse group'}
+            aria-expanded={!collapsed}
+          >
+            <span className={'automation-group-chevron' + (collapsed ? ' collapsed' : '')}>▾</span>
+          </button>
+          {isUngrouped ? (
+            <h3>Ungrouped</h3>
+          ) : (
+            <input
+              type="text"
+              className="automation-group-name-input"
+              value={nameDraft}
+              onChange={(e) => setNameDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') e.target.blur();
+              }}
+            />
+          )}
+          {collapsed && <span className="muted">({automations.length})</span>}
+          {!isUngrouped && (
+            <button className="btn btn-small btn-danger" onClick={() => onDeleteGroup(group.id)}>
+              Delete group
+            </button>
+          )}
+        </div>
+      )}
+      {!collapsed && (
+        <div className="automation-grid">
+          {automations.map((a) => (
+            <AutomationCard key={a.id} automation={a} onEdit={onEdit} onDelete={onDelete} onDragAutomation={onDragAutomation} />
+          ))}
+          {automations.length === 0 && <p className="muted">Drag automations here.</p>}
+        </div>
+      )}
     </div>
   );
 }
@@ -318,6 +530,7 @@ function PendingCard({ entry, accountNames, payees, onApprove, onSkip }) {
 
 export default function AutomationsView() {
   const [automationsList, setAutomationsList] = useState([]);
+  const [groups, setGroups] = useState([]);
   const [pending, setPending] = useState([]);
   const [accountNames, setAccountNames] = useState([]);
   const [payees, setPayees] = useState([]);
@@ -326,17 +539,30 @@ export default function AutomationsView() {
   const [note, setNote] = useState(null);
   const [editing, setEditing] = useState(null);
   const [showForm, setShowForm] = useState(false);
+  const [collapsedGroups, setCollapsedGroups] = useState(loadCollapsedGroups);
+
+  const toggleGroupCollapsed = (key) => {
+    setCollapsedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      saveCollapsedGroups(next);
+      return next;
+    });
+  };
 
   const load = async () => {
     setError(null);
     try {
-      const [autos, pend, names, txns] = await Promise.all([
+      const [autos, grps, pend, names, txns] = await Promise.all([
         api.getAutomations(),
+        api.getAutomationGroups(),
         api.getPendingAutomations(),
         api.getAccountNames(),
         api.getTransactions(),
       ]);
       setAutomationsList(autos);
+      setGroups(grps);
       setPending(pend);
       setAccountNames(names);
       const counts = new Map();
@@ -387,7 +613,66 @@ export default function AutomationsView() {
     await load();
   };
 
+  const handleCreateGroup = async () => {
+    try {
+      await api.createAutomationGroup('New Group');
+      await load();
+    } catch (e) {
+      setError(e.message);
+    }
+  };
+
+  const handleRenameGroup = async (id, name) => {
+    try {
+      await api.renameAutomationGroup(id, name);
+      await load();
+    } catch (e) {
+      setError(e.message);
+    }
+  };
+
+  const handleDeleteGroup = async (id) => {
+    if (!confirm('Delete this group? Its automations will become ungrouped.')) return;
+    try {
+      await api.deleteAutomationGroup(id);
+      await load();
+    } catch (e) {
+      setError(e.message);
+    }
+  };
+
+  const handleDragAutomation = async (automationId, groupId, beforeId) => {
+    try {
+      await api.moveAutomation(automationId, { groupId, beforeId });
+      await load();
+    } catch (e) {
+      setError(e.message);
+    }
+  };
+
+  const handleDragGroup = async (draggedGroupId, targetGroupId) => {
+    const order = groups.map((g) => g.id);
+    const from = order.indexOf(draggedGroupId);
+    if (from === -1) return;
+    order.splice(from, 1);
+    const to = order.indexOf(targetGroupId);
+    order.splice(to, 0, draggedGroupId);
+    try {
+      await api.reorderAutomationGroups(order);
+      await load();
+    } catch (e) {
+      setError(e.message);
+    }
+  };
+
   if (loading) return <p>Loading…</p>;
+
+  const automationsByGroup = new Map(groups.map((g) => [g.id, []]));
+  const ungrouped = [];
+  for (const a of automationsList) {
+    if (a.group_id && automationsByGroup.has(a.group_id)) automationsByGroup.get(a.group_id).push(a);
+    else ungrouped.push(a);
+  }
 
   return (
     <div>
@@ -416,6 +701,9 @@ export default function AutomationsView() {
         <h2 className="section-heading" style={{ flex: 1, marginBottom: 0 }}>
           Automations
         </h2>
+        <button className="btn" onClick={handleCreateGroup}>
+          + New group
+        </button>
         {!showForm && (
           <button
             className="btn btn-primary"
@@ -438,6 +726,8 @@ export default function AutomationsView() {
               ? {
                   name: editing.name,
                   period: editing.period,
+                  custom_interval: editing.custom_interval ?? 1,
+                  custom_unit: editing.custom_unit ?? 'months',
                   start_date: toHtmlDate(editing.start_date),
                   end_date: toHtmlDate(editing.end_date ?? ''),
                   template: editing.template,
@@ -453,20 +743,42 @@ export default function AutomationsView() {
         />
       )}
 
-      <div className="automation-grid">
-        {automationsList.map((a) => (
-          <AutomationCard
-            key={a.id}
-            automation={a}
-            onEdit={(auto) => {
-              setEditing(auto);
-              setShowForm(true);
-            }}
-            onDelete={handleDelete}
-          />
-        ))}
-        {automationsList.length === 0 && <p className="muted">No automations yet.</p>}
-      </div>
+      {groups.map((g) => (
+        <GroupSection
+          key={g.id}
+          group={g}
+          automations={automationsByGroup.get(g.id) ?? []}
+          onEdit={(auto) => {
+            setEditing(auto);
+            setShowForm(true);
+          }}
+          onDelete={handleDelete}
+          onDragAutomation={handleDragAutomation}
+          onRename={handleRenameGroup}
+          onDeleteGroup={handleDeleteGroup}
+          onDragGroup={handleDragGroup}
+          collapsed={collapsedGroups.has(g.id)}
+          onToggleCollapsed={() => toggleGroupCollapsed(g.id)}
+        />
+      ))}
+
+      {(groups.length > 0 || ungrouped.length > 0) && (
+        <GroupSection
+          group={null}
+          automations={ungrouped}
+          onEdit={(auto) => {
+            setEditing(auto);
+            setShowForm(true);
+          }}
+          onDelete={handleDelete}
+          onDragAutomation={handleDragAutomation}
+          hideHeader={groups.length === 0}
+          collapsed={collapsedGroups.has(UNGROUPED_KEY)}
+          onToggleCollapsed={() => toggleGroupCollapsed(UNGROUPED_KEY)}
+        />
+      )}
+
+      {automationsList.length === 0 && groups.length === 0 && <p className="muted">No automations yet.</p>}
     </div>
   );
 }

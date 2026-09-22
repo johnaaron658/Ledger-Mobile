@@ -63,18 +63,21 @@ export default function AccountsView() {
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState(null);
   const [note, setNote] = useState(null);
+  const [defaultCurrency, setDefaultCurrency] = useState('');
 
   const load = async () => {
     setLoading(true);
     try {
-      const [t, txns, names] = await Promise.all([
+      const [t, txns, names, settings] = await Promise.all([
         api.getAccounts(),
         api.getTransactions(),
         api.getAccountNames(),
+        api.getAppSettings(),
       ]);
       setTree(t);
       setTransactions(txns);
       setAccountNames(names);
+      setDefaultCurrency(settings.default_currency);
     } catch (e) {
       setError(e.message);
     } finally {
@@ -190,14 +193,14 @@ export default function AccountsView() {
     setSaving(true);
     setFormError(null);
     try {
-      if (editing && editing !== 'new') {
+      if (editing && typeof editing === 'object') {
         await api.editTransaction({ ...payload, file: editing.file, beg_line: editing.beg_line, end_line: editing.end_line });
       } else {
         await api.addTransaction(payload);
       }
       setEditing(null);
       await refreshAfterSave();
-      setNote('Saved.');
+      setNote(editing === 'new-account' ? 'Account created.' : 'Saved.');
     } catch (e) {
       setFormError(e.message);
     } finally {
@@ -226,7 +229,7 @@ export default function AccountsView() {
   };
 
   const handleModalDelete = () => {
-    if (editing && editing !== 'new') deleteTransaction(editing);
+    if (editing && typeof editing === 'object') deleteTransaction(editing);
   };
 
   if (loading) return <p>Loading…</p>;
@@ -344,6 +347,12 @@ export default function AccountsView() {
         </div>
       )}
 
+      <div className="toolbar">
+        <button className="btn btn-primary" onClick={() => setEditing('new-account')}>
+          + New account
+        </button>
+      </div>
+
       <div className="panel account-tree" style={{ padding: '8px 12px' }}>
         {tree.children.map((c) => (
           <AccountNode key={c.full_name} node={c} depth={0} selected={selected} onSelect={setSelected} />
@@ -352,10 +361,18 @@ export default function AccountsView() {
 
       {editing && (
         <TransactionForm
-          initial={editing === 'new' ? null : editing}
+          initial={typeof editing === 'object' ? editing : null}
           initialDate={editing === 'new' ? selectedDate : undefined}
+          initialPayee={editing === 'new-account' ? 'Starting Balance' : undefined}
+          initialPostings={
+            editing === 'new-account'
+              ? [{ account: '', amount_raw: defaultCurrency }, { account: 'Equity:Starting Balance', amount_raw: '' }]
+              : undefined
+          }
+          title={editing === 'new-account' ? 'New account' : undefined}
           accountNames={accountNames}
           payees={payees}
+          defaultCurrency={defaultCurrency}
           onSave={handleSave}
           onClose={() => {
             setEditing(null);

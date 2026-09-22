@@ -172,6 +172,10 @@ export default function AnalysisView() {
   const [lastClickedAccountIndex, setLastClickedAccountIndex] = useState(null);
   const [dragOverTarget, setDragOverTarget] = useState(null);
   const [copySourceIds, setCopySourceIds] = useState([]);
+  const [otherAnalysisId, setOtherAnalysisId] = useState('');
+  const [otherAnalysisCategories, setOtherAnalysisCategories] = useState([]);
+  const [otherAnalysisLoading, setOtherAnalysisLoading] = useState(false);
+  const [otherCopyIndices, setOtherCopyIndices] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
@@ -202,6 +206,29 @@ export default function AnalysisView() {
       }
     })();
   }, []);
+
+  useEffect(() => {
+    if (!otherAnalysisId) {
+      setOtherAnalysisCategories([]);
+      setOtherCopyIndices([]);
+      return;
+    }
+    let cancelled = false;
+    setOtherAnalysisLoading(true);
+    (async () => {
+      try {
+        const a = await api.getAnalysis(otherAnalysisId);
+        if (!cancelled) setOtherAnalysisCategories(a.categories ?? []);
+      } catch (e) {
+        if (!cancelled) setError(e.message);
+      } finally {
+        if (!cancelled) setOtherAnalysisLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [otherAnalysisId]);
 
   const addExcludedAccount = (account) => {
     setExcludedAccounts((prev) => (prev.includes(account) ? prev : [...prev, account]));
@@ -497,6 +524,32 @@ export default function AnalysisView() {
         },
       ];
     });
+  };
+
+  const addCategoriesFromOther = (indices) => {
+    if (!indices.length) return;
+    setCategories((prev) => {
+      const existingNames = new Set(prev.map((c) => c.name));
+      const copies = indices.map((i, offset) => {
+        const src = otherAnalysisCategories[i];
+        let name = src.name;
+        if (existingNames.has(name)) name = `${name} (copy)`;
+        existingNames.add(name);
+        return {
+          id: `cat-${crypto.randomUUID()}`,
+          name,
+          color_index: (prev.length + offset) % 8,
+          payees: [...(src.payees ?? [])],
+          accounts: [...(src.accounts ?? [])],
+          hidden: false,
+          show_balance: src.show_balance ?? false,
+          forecast_enabled: src.forecast_enabled ?? false,
+          forecast_lookback: src.forecast_lookback ?? 6,
+        };
+      });
+      return [...prev, ...copies];
+    });
+    setOtherCopyIndices([]);
   };
 
   const renameCategory = (id, newName) => {
@@ -1059,6 +1112,63 @@ export default function AnalysisView() {
                 >
                   Copy from selected
                 </button>
+              </div>
+            )}
+            {analysesList.filter((a) => a.id !== currentId).length > 0 && (
+              <div className="copy-category-control">
+                <select
+                  value={otherAnalysisId}
+                  onChange={(e) => setOtherAnalysisId(e.target.value)}
+                  style={{ width: 170 }}
+                >
+                  <option value="">Copy from another analysis…</option>
+                  {analysesList
+                    .filter((a) => a.id !== currentId)
+                    .map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.name}
+                      </option>
+                    ))}
+                </select>
+                {otherAnalysisId && (
+                  <>
+                    {otherAnalysisLoading ? (
+                      <p className="muted" style={{ fontSize: 12, margin: 0 }}>
+                        Loading…
+                      </p>
+                    ) : otherAnalysisCategories.length === 0 ? (
+                      <p className="muted" style={{ fontSize: 12, margin: 0 }}>
+                        That analysis has no categories.
+                      </p>
+                    ) : (
+                      <>
+                        <div className="copy-category-list" title="Copy these categories' payees and accounts into this analysis">
+                          {otherAnalysisCategories.map((c, i) => (
+                            <label key={`${c.name}-${i}`} className="copy-category-option">
+                              <input
+                                type="checkbox"
+                                checked={otherCopyIndices.includes(i)}
+                                onChange={() =>
+                                  setOtherCopyIndices((prev) =>
+                                    prev.includes(i) ? prev.filter((idx) => idx !== i) : [...prev, i]
+                                  )
+                                }
+                              />
+                              {c.name}
+                            </label>
+                          ))}
+                        </div>
+                        <button
+                          className="btn btn-small"
+                          disabled={otherCopyIndices.length === 0}
+                          onClick={() => addCategoriesFromOther(otherCopyIndices)}
+                        >
+                          Copy selected
+                        </button>
+                      </>
+                    )}
+                  </>
+                )}
               </div>
             )}
           </div>
