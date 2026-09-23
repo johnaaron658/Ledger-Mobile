@@ -7,3 +7,8 @@ __pycache__/
 # tools/capture-fixtures.py + a journal, and they contain real financial
 # data.
 engine/test/golden/
+
+# Mobile-app design and implementation notes — scratch, kept out of history,
+# copied over from the dashboard repo for a fresh session's context. Same
+# convention as dashboard/.gitignore.
+MOBILE_APP*.md
