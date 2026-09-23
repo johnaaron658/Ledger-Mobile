@@ -1,3 +1,5 @@
+import { BrowserStorage, createLocalApi } from '@ledger/core';
+
 async function request(method, path, body) {
   const res = await fetch(path, {
     method,
@@ -11,7 +13,7 @@ async function request(method, path, body) {
   return data;
 }
 
-export const api = {
+const httpApi = {
   getTransactions: () => request('GET', '/api/transactions'),
   addTransaction: (txn) => request('POST', '/api/transactions', txn),
   editTransaction: (txn) => request('PUT', '/api/transactions', txn),
@@ -71,4 +73,18 @@ export const api = {
     request('PUT', `/api/automation-groups/${encodeURIComponent(id)}`, { name }),
   deleteAutomationGroup: (id) => request('DELETE', `/api/automation-groups/${encodeURIComponent(id)}`),
   reorderAutomationGroups: (order) => request('PUT', '/api/automation-groups/reorder', { order }),
+
+  // Desktop always has a journal — config.py points at a folder that
+  // already exists — so App.jsx's §5.4 empty-state check is always
+  // satisfied here and the import screen never mounts against httpApi.
+  hasJournal: () => Promise.resolve(true),
 };
+
+// The Phase 4 swap (§5.1 of MOBILE_APP_IMPLEMENTATION.md): a build-time flag
+// picks the local @ledger/core engine (running against browser storage) over
+// the fetch wrapper above. No component changes — every component imports
+// `api` from here and never knows which implementation it got, which is what
+// keeps both stacks runnable side by side for tools/compare-api.py (§5.2).
+export const isLocalEngine = import.meta.env.VITE_LOCAL_ENGINE === '1';
+
+export const api = isLocalEngine ? createLocalApi(new BrowserStorage()) : httpApi;
