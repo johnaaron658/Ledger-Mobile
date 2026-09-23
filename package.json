@@ -1,0 +1,11 @@
+{
+  "name": "ledger-mobile",
+  "private": true,
+  "workspaces": [
+    "core",
+    "engine"
+  ],
+  "scripts": {
+    "test": "npm run test --workspaces --if-present"
+  }
+}

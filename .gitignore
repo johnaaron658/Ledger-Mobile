@@ -1,0 +1,9 @@
+node_modules/
+*/dist/
+__pycache__/
+*.pyc
+
+# Golden-output fixtures: regenerable from the dashboard repo's
+# tools/capture-fixtures.py + a journal, and they contain real financial
+# data.
+engine/test/golden/
