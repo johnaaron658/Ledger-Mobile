@@ -31,10 +31,22 @@ import {
   type JournalImportResult,
   emptyJournalText,
   exportConfigBundle,
+  exportFullBundle,
   importConfig,
   importJournal,
   previewJournalImport,
 } from "./importExport.js";
+import {
+  type ExportNudge,
+  type ExportRecord,
+  type WriteStats,
+  getExportNudge,
+  getRetainedExportBytes,
+  getWriteStats,
+  listRetainedExports,
+  recordExport,
+  undoLastWrite,
+} from "./mobileState.js";
 
 async function loadJournal(storage: Storage): Promise<{ text: string; journal: Journal; index: PriceIndex }> {
   const text = (await storage.readJournal()) ?? "";
@@ -117,6 +129,32 @@ export function createLocalApi(storage: Storage, journalPath = "journal.ledger")
     },
     async exportConfig(): Promise<Uint8Array> {
       return exportConfigBundle(storage);
+    },
+
+    // Phase 5 (§6 items 3-5): the mobile-only one-tap export, single-level
+    // undo, and staleness nudge. Not part of the original ~40-method api.js
+    // contract (the desktop has no equivalent — no export, no undo beyond
+    // its own git history, no "since last export" concept), same rationale
+    // as the §5.4 import methods above.
+    async exportBundle(label = "export"): Promise<Uint8Array> {
+      const bytes = await exportFullBundle(storage);
+      await recordExport(storage, bytes, label);
+      return bytes;
+    },
+    async getExportNudge(now?: string): Promise<ExportNudge> {
+      return getExportNudge(storage, now ? new Date(now) : new Date());
+    },
+    async getWriteStats(): Promise<WriteStats> {
+      return getWriteStats(storage);
+    },
+    async listRetainedExports(): Promise<ExportRecord[]> {
+      return listRetainedExports(storage);
+    },
+    async getRetainedExportBytes(id: string): Promise<Uint8Array | null> {
+      return getRetainedExportBytes(storage, id);
+    },
+    async undoLastWrite(): Promise<{ ok: boolean; message?: string }> {
+      return undoLastWrite(storage);
     },
 
     async getTransactions() {

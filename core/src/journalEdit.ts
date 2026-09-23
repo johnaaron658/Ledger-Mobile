@@ -65,8 +65,9 @@ export async function appendTransaction(
   const block = renderTransactionBlock(date, payee, postings);
   const updated = original + separatorFor(original) + block;
   validateOrThrow(updated);
-  await storage.writeJournal(updated);
-  return { message: `dashboard: add transaction ${date} ${payee}` };
+  const message = `dashboard: add transaction ${date} ${payee}`;
+  await storage.writeJournal(updated, message);
+  return { message };
 }
 
 /** Appends a pre-rendered ledger block verbatim (e.g. a rendered automation
@@ -76,7 +77,7 @@ export async function appendRawBlock(storage: Storage, blockText: string, messag
   const block = `${blockText.replace(/^\n+|\n+$/g, "")}\n`;
   const updated = original + separatorFor(original) + block;
   validateOrThrow(updated);
-  await storage.writeJournal(updated);
+  await storage.writeJournal(updated, message);
   return { message };
 }
 
@@ -96,8 +97,9 @@ export async function replaceTransaction(
   const block = renderTransactionBlock(date, payee, postings);
   const updated = [...lines.slice(0, begLine - 1), block, ...lines.slice(endLine)].join("");
   validateOrThrow(updated);
-  await storage.writeJournal(updated);
-  return { message: `dashboard: edit transaction ${date} ${payee}` };
+  const message = `dashboard: edit transaction ${date} ${payee}`;
+  await storage.writeJournal(updated, message);
+  return { message };
 }
 
 export async function deleteTransaction(storage: Storage, begLine: number, endLine: number): Promise<EditResult> {
@@ -115,15 +117,20 @@ export async function deleteTransaction(storage: Storage, begLine: number, endLi
   }
   const updated = newLines.join("");
   validateOrThrow(updated);
-  await storage.writeJournal(updated);
-  return { message: `dashboard: delete transaction at line ${begLine}` };
+  const message = `dashboard: delete transaction at line ${begLine}`;
+  await storage.writeJournal(updated, message);
+  return { message };
 }
 
 /** Writes arbitrary already-assembled journal text (budgets.ts's/
  * commodities.ts's line-splicing edits build the whole new text themselves,
  * unlike the transaction-block helpers above), validating first and never
- * touching storage if validation fails. */
-export async function writeAndValidate(storage: Storage, newContent: string): Promise<void> {
+ * touching storage if validation fails. `message`, when passed, is the same
+ * journal_edit-style label the transaction helpers generate — threading it
+ * through here is what lets budget/commodity edits participate in the
+ * single-level undo (mobileState.ts's TrackingStorage) too, not just
+ * transaction add/edit/delete. */
+export async function writeAndValidate(storage: Storage, newContent: string, message?: string): Promise<void> {
   validateOrThrow(newContent);
-  await storage.writeJournal(newContent);
+  await storage.writeJournal(newContent, message);
 }

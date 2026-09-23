@@ -141,8 +141,9 @@ export async function addPricePoint(
     updatedLines = [...lines.slice(0, insertAt), header, newLine, "\n", ...lines.slice(insertAt)];
   }
 
-  await writeAndValidate(storage, updatedLines.join(""));
-  return { message: `dashboard: price ${commodity} ${dateText} = ${amountRaw} ${priceCommodity}` };
+  const message = `dashboard: price ${commodity} ${dateText} = ${amountRaw} ${priceCommodity}`;
+  await writeAndValidate(storage, updatedLines.join(""), message);
+  return { message };
 }
 
 /** Port of prices.delete_commodity. */
@@ -160,6 +161,7 @@ export async function deleteCommodity(storage: Storage, commodityIn: string): Pr
   if (removeLineIdx.size === 0) throw new PriceError(`No price history found for "${commodity}".`);
 
   const updated = lines.filter((_, i) => !removeLineIdx.has(i)).join("");
-  await writeAndValidate(storage, updated);
-  return { message: `dashboard: delete commodity ${commodity}` };
+  const message = `dashboard: delete commodity ${commodity}`;
+  await writeAndValidate(storage, updated, message);
+  return { message };
 }

@@ -51,6 +51,20 @@ function idbPut(db: IDBDatabase, key: string, value: unknown): Promise<void> {
   });
 }
 
+function idbDelete(db: IDBDatabase, key: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_NAME, "readwrite");
+    tx.objectStore(STORE_NAME).delete(key);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error ?? new Error("IndexedDB delete aborted"));
+  });
+}
+
+function stateKey(key: string): string {
+  return `state:${key}`;
+}
+
 export class BrowserStorage implements Storage {
   private dbPromise: Promise<IDBDatabase> | null = null;
 
@@ -68,7 +82,8 @@ export class BrowserStorage implements Storage {
     return value ?? null;
   }
 
-  async writeJournal(text: string): Promise<void> {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  async writeJournal(text: string, _message?: string): Promise<void> {
     await idbPut(await this.db(), JOURNAL_KEY, text);
   }
 
@@ -79,5 +94,16 @@ export class BrowserStorage implements Storage {
 
   async writeConfig(name: ConfigFile, value: unknown): Promise<void> {
     await idbPut(await this.db(), configKey(name), value);
+  }
+
+  async readState(key: string): Promise<unknown | null> {
+    const value = await idbGet(await this.db(), stateKey(key));
+    return value ?? null;
+  }
+
+  async writeState(key: string, value: unknown | null): Promise<void> {
+    const db = await this.db();
+    if (value === null) await idbDelete(db, stateKey(key));
+    else await idbPut(db, stateKey(key), value);
   }
 }

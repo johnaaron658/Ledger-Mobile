@@ -15,6 +15,7 @@ import {
 class MemoryStorage implements Storage {
   private journal: string | null = null;
   private config = new Map<ConfigFile, unknown>();
+  private state = new Map<string, unknown>();
 
   async readJournal() {
     return this.journal;
@@ -27,6 +28,13 @@ class MemoryStorage implements Storage {
   }
   async writeConfig(name: ConfigFile, value: unknown) {
     this.config.set(name, value);
+  }
+  async readState(key: string) {
+    return this.state.has(key) ? this.state.get(key)! : null;
+  }
+  async writeState(key: string, value: unknown) {
+    if (value === null) this.state.delete(key);
+    else this.state.set(key, value);
   }
 }
 

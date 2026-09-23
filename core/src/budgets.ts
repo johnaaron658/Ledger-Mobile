@@ -313,8 +313,9 @@ export async function addBudgetPeriod(storage: Storage, today: Date, account: st
   lines.splice(endIdx, 0, ...newLines);
 
   const updated = lines.join("");
-  await writeAndValidate(storage, updated);
-  return { message: `dashboard: new budget period for ${account} (${periodText})` };
+  const message = `dashboard: new budget period for ${account} (${periodText})`;
+  await writeAndValidate(storage, updated, message);
+  return { message };
 }
 
 /** Port of budgets.create_budget. */
@@ -343,8 +344,9 @@ export async function createBudget(
   const sep = original.endsWith("\n\n") ? "" : original.endsWith("\n") ? "\n" : "\n\n";
   const label = account.includes(":") ? account.slice(account.lastIndexOf(":") + 1) : account;
   const block = `// ${label} Budget History\n\n~ ${periodText}\n    ${account}    ${amountRaw}\n    ${offsetAccount}\n`;
-  await writeAndValidate(storage, original + sep + block);
-  return { message: `dashboard: new budget for ${account} (${periodText})` };
+  const message = `dashboard: new budget for ${account} (${periodText})`;
+  await writeAndValidate(storage, original + sep + block, message);
+  return { message };
 }
 
 // budget_settings.py port — a plain JSON blob via Storage.

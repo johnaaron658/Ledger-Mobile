@@ -4,7 +4,8 @@
   "workspaces": [
     "core",
     "engine",
-    "frontend"
+    "frontend",
+    "mobile"
   ],
   "scripts": {
     "test": "npm run test --workspaces --if-present"
