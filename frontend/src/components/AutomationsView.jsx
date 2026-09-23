@@ -278,12 +278,20 @@ function usePointerDnD({ onDropAutomation, onDropGroup }) {
     draggingRef.current = info;
     setDragging(info);
 
+    // A drag is tied to the one pointerId that started it. Without this
+    // filter, a second finger touching the screen mid-drag (a resting
+    // thumb, an accidental brush) fires its own pointermove/pointerup on
+    // `window` and would be misread as continuing or ending *this* drag —
+    // real risk on a phone, impossible to hit with a mouse, so a mouse-only
+    // dev pass could never have caught it.
+    const pointerId = e.pointerId;
     const move = (ev) => {
-      if (!draggingRef.current) return;
+      if (ev.pointerId !== pointerId || !draggingRef.current) return;
       ev.preventDefault();
       setOver(findTarget(ev.clientX, ev.clientY, type));
     };
     const up = (ev) => {
+      if (ev.pointerId !== pointerId) return;
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
       window.removeEventListener('pointercancel', up);

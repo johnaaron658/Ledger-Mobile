@@ -187,6 +187,37 @@
   font-size: 13px;
 }
 
+/* .btn's desktop sizing (~32px tall) and .btn-small's (~24px) are both
+   under Apple HIG's 44pt / Material's 48dp minimum touch target — fine
+   with a mouse's pixel-precise pointer, a real miss-tap risk on a phone
+   (.btn-small especially, used for per-row edit/delete in dense lists,
+   where a miss is a wrong delete, not just a wrong click). Scoped to
+   pointer: coarse rather than a width breakpoint, and to min-height rather
+   than padding, so desktop's visual density is untouched and text stays
+   centered regardless of how much taller the box grows. */
+@media (pointer: coarse) {
+  .btn {
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .btn-small {
+    min-height: 40px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  /* Payee/account picking (FuzzyCombobox) is the core interaction in the
+     quick-add flow MOBILE_APP.md §6 calls "the single most-used action on
+     a phone finance app" — worth the same treatment. */
+  .combobox-option {
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+  }
+}
+
 table {
   width: 100%;
   border-collapse: collapse;
@@ -1254,6 +1285,10 @@ tbody tr:hover {
   color: var(--text-muted);
   line-height: 1;
   user-select: none;
+  /* iOS WKWebView's long-press callout (magnifier / copy popup) has its own
+     timer that races the drag gesture — touch-action: none alone doesn't
+     suppress it, since that's a scroll-gesture control, not a callout one. */
+  -webkit-touch-callout: none;
   flex: 0 0 auto;
 }
 
