@@ -1,0 +1,21 @@
+{
+  "name": "@ledger/core",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@ledger/engine": "*",
+    "fflate": "^0.8.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "fake-indexeddb": "^6.2.5",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  }
+}
