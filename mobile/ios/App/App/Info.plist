@@ -66,5 +66,7 @@
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>
+	<key>NSFaceIDUsageDescription</key>
+	<string>Unlock Ledger Dashboard with Face ID instead of retyping a password.</string>
 </dict>
 </plist>

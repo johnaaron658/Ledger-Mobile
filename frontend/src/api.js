@@ -1,4 +1,10 @@
-import { BrowserStorage, createLocalApi } from '@ledger/core';
+import { BrowserStorage, TrackingStorage, createLocalApi } from '@ledger/core';
+// Not from the '@ledger/core' barrel — see capacitorStorage.ts's header for
+// why (pulling @capacitor/filesystem into a plain-browser build is safe at
+// runtime, since it ships its own web fallback, but the barrel's dependency
+// surface should stay intentional rather than accidental).
+import { CapacitorStorage } from '@ledger/core/src/capacitorStorage.js';
+import { isNativePlatform } from './capacitorAdapter.js';
 
 async function request(method, path, body) {
   const res = await fetch(path, {
@@ -87,4 +93,14 @@ const httpApi = {
 // keeps both stacks runnable side by side for tools/compare-api.py (§5.2).
 export const isLocalEngine = import.meta.env.VITE_LOCAL_ENGINE === '1';
 
-export const api = isLocalEngine ? createLocalApi(new BrowserStorage()) : httpApi;
+// Phase 5 (§6 items 1, 4): CapacitorStorage (app-private files, via
+// @capacitor/filesystem) replaces BrowserStorage (IndexedDB) only when
+// actually running inside a native shell — the plain web build (Phase 4,
+// still shipped alongside this one) is untouched. Either way the storage is
+// wrapped in TrackingStorage (core/src/mobileState.ts) for single-level
+// undo and the export-staleness nudge (§6 items 4-5) — harmless and useful
+// for the web build too, not just mobile.
+const baseStorage = isLocalEngine ? (isNativePlatform() ? new CapacitorStorage() : new BrowserStorage()) : null;
+const trackedStorage = baseStorage ? new TrackingStorage(baseStorage) : null;
+
+export const api = isLocalEngine ? createLocalApi(trackedStorage) : httpApi;

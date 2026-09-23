@@ -11,6 +11,84 @@
   padding: 14px 24px;
   border-bottom: 1px solid var(--border);
   background: var(--bg-alt);
+  flex-wrap: wrap;
+}
+
+/* --- Export bar (§6 items 3+5) --- */
+
+.export-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
+  flex-wrap: wrap;
+}
+
+.export-nudge {
+  font-size: 12px;
+  color: var(--text-muted);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 4px 10px;
+}
+
+.export-note {
+  font-size: 12px;
+  color: var(--accent);
+}
+
+.export-note-error {
+  color: var(--danger);
+}
+
+.biometric-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+/* --- Biometric lock screen (§6 item 7) --- */
+
+.biometric-lock-screen {
+  max-width: 360px;
+  margin: 20vh auto 0;
+  text-align: center;
+  padding: 24px;
+}
+
+.biometric-lock-screen .btn {
+  margin-top: 16px;
+}
+
+/* --- Quick-add FAB (§6 item 6) --- */
+
+.quick-add-fab {
+  position: fixed;
+  right: 20px;
+  bottom: 24px;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  border: none;
+  background: var(--accent);
+  color: white;
+  font-size: 28px;
+  line-height: 1;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.28);
+  cursor: pointer;
+  z-index: 20;
+  /* Keeps the FAB clear of iOS/Android gesture-nav insets */
+  margin-bottom: env(safe-area-inset-bottom, 0px);
+  margin-right: env(safe-area-inset-right, 0px);
+}
+
+.quick-add-fab:active {
+  transform: scale(0.94);
 }
 
 .app-header h1 {
@@ -150,6 +228,64 @@ tbody tr:hover {
   display: flex;
   justify-content: space-between;
   gap: 12px;
+}
+
+/* --- Responsive table -> card list (§6 item 6) ---
+   Below the breakpoint, dense multi-column rows (TransactionsView,
+   AccountsView's per-date breakdown) become a stacked card per row instead
+   of a horizontally-cramped/scrolling table — MOBILE_APP.md §6: "needs
+   virtualisation and a card layout rather than a table." (Virtualisation
+   itself is not done here — see MOBILE_APP_IMPLEMENTATION.md's Phase 5
+   writeup for why that's deferred.) `data-label` on each <td> supplies the
+   field name the hidden <thead> would otherwise have shown. */
+@media (max-width: 640px) {
+  table.responsive-table thead {
+    display: none;
+  }
+  table.responsive-table,
+  table.responsive-table tbody {
+    display: block;
+    width: 100%;
+  }
+  table.responsive-table tr {
+    display: block;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+  }
+  table.responsive-table tr:last-child {
+    border-bottom: none;
+  }
+  table.responsive-table td {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 5px 0;
+    border-bottom: none;
+  }
+  table.responsive-table td:empty {
+    display: none;
+  }
+  table.responsive-table td[data-label]::before {
+    content: attr(data-label);
+    color: var(--text-muted);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    flex: 0 0 auto;
+    padding-top: 2px;
+  }
+  table.responsive-table .postings-list {
+    flex: 1;
+    min-width: 0;
+  }
+  table.responsive-table .row-actions {
+    justify-content: flex-start;
+    width: 100%;
+  }
+  table.responsive-table .row-actions .btn {
+    flex: 1;
+  }
 }
 
 .error-banner {
@@ -566,6 +702,32 @@ tbody tr:hover {
   border: 2px solid var(--bg);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
   cursor: pointer;
+}
+
+/* Touch-friendly date range (§6 item 6, MOBILE_APP.md §6: "chart needs
+   touch-friendly zoom (DateRangeSlider is mouse-oriented)"). Targets an
+   actual coarse pointer (finger) rather than a viewport-width breakpoint,
+   so a touch laptop/tablet in a wide window still gets the bigger touch
+   target, and a narrow desktop window doesn't. Two overlapping <input
+   type=range> thumbs sharing one track (see DateRangeSlider.jsx) are
+   already the hardest case for touch precision, so this is a real
+   usability fix, not just cosmetic sizing. */
+@media (pointer: coarse) {
+  .date-range-slider-track-wrap,
+  .date-range-slider-input,
+  .date-range-slider-input::-webkit-slider-runnable-track,
+  .date-range-slider-input::-moz-range-track {
+    height: 40px;
+  }
+  .date-range-slider-input::-webkit-slider-thumb {
+    width: 26px;
+    height: 26px;
+    margin-top: 3px;
+  }
+  .date-range-slider-input::-moz-range-thumb {
+    width: 26px;
+    height: 26px;
+  }
 }
 
 .date-range-slider-ticks {
@@ -1075,7 +1237,33 @@ tbody tr:hover {
   align-items: center;
   gap: 10px;
   margin: 6px 4px 10px;
+}
+
+/* --- Touch-compatible drag handle (§6 item 6) ---
+   A dedicated grab handle, not "drag anywhere on the card/header" (the
+   previous HTML5-DnD version's behavior): on touch, dragging from anywhere
+   on a card would fight with the page's own scroll gesture. touch-action:
+   none on just the handle keeps the rest of the card's normal scroll
+   behavior intact and gives the drag gesture an unambiguous start point. */
+.dnd-handle {
   cursor: grab;
+  touch-action: none;
+  padding: 4px 6px;
+  margin: -4px -2px;
+  border-radius: 4px;
+  color: var(--text-muted);
+  line-height: 1;
+  user-select: none;
+  flex: 0 0 auto;
+}
+
+.dnd-handle:hover {
+  background: var(--bg-alt);
+  color: var(--text);
+}
+
+.dnd-dragging {
+  opacity: 0.5;
 }
 
 .automation-group-header h3 {

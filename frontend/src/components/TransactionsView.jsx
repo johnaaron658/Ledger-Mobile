@@ -137,7 +137,7 @@ export default function TransactionsView() {
         {loading ? (
           <p style={{ padding: 16 }}>Loading…</p>
         ) : (
-          <table>
+          <table className="responsive-table">
             <thead>
               <tr>
                 <th>Date</th>
@@ -148,10 +148,10 @@ export default function TransactionsView() {
             </thead>
             <tbody>
               {visible.map((t) => (
-                <tr key={`${t.file}:${t.beg_line}`}>
-                  <td>{t.date}</td>
-                  <td>{t.payee}</td>
-                  <td>
+                <tr key={`${t.file}:${t.beg_line}`} onClick={() => setEditing(t)}>
+                  <td data-label="Date">{t.date}</td>
+                  <td data-label="Payee">{t.payee}</td>
+                  <td data-label="Postings">
                     <div className="postings-list">
                       {t.postings.map((p, i) => (
                         <div className="posting-line" key={i}>
@@ -163,7 +163,7 @@ export default function TransactionsView() {
                   </td>
                   <td>
                     <div className="row-actions">
-                      <button className="btn btn-small" onClick={() => setEditing(t)}>
+                      <button className="btn btn-small" onClick={(e) => { e.stopPropagation(); setEditing(t); }}>
                         Edit
                       </button>
                     </div>

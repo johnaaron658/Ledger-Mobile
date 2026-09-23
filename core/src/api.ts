@@ -39,9 +39,11 @@ import {
 import {
   type ExportNudge,
   type ExportRecord,
+  type UndoState,
   type WriteStats,
   getExportNudge,
   getRetainedExportBytes,
+  getUndoState,
   getWriteStats,
   listRetainedExports,
   recordExport,
@@ -155,6 +157,22 @@ export function createLocalApi(storage: Storage, journalPath = "journal.ledger")
     },
     async undoLastWrite(): Promise<{ ok: boolean; message?: string }> {
       return undoLastWrite(storage);
+    },
+    /** Peek-without-consuming, for a UI "Undo <label>" button's enabled
+     * state and label text — undoLastWrite() itself is the consuming call. */
+    async peekUndo(): Promise<UndoState | null> {
+      return getUndoState(storage);
+    },
+    /** Thin passthrough to Storage.readState/writeState (mobileState.ts's
+     * device-local `state` keys) for UI-level preferences that must never
+     * round-trip through the config bundle export/import (§3.2) — e.g. the
+     * biometric-lock toggle (BiometricLock.jsx): meaningless once restored
+     * onto a different device, so it's deliberately not "config". */
+    async readAppState(key: string): Promise<unknown | null> {
+      return storage.readState(key);
+    },
+    async writeAppState(key: string, value: unknown | null): Promise<void> {
+      return storage.writeState(key, value);
     },
 
     async getTransactions() {

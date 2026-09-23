@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api';
 import FuzzyCombobox from './FuzzyCombobox';
 
@@ -214,10 +214,110 @@ function AutomationForm({ initial, accountNames, payees, onSave, onCancel }) {
   );
 }
 
-const AUTOMATION_DND_TYPE = 'application/x-automation-id';
-const GROUP_DND_TYPE = 'application/x-group-id';
 const COLLAPSED_GROUPS_KEY = 'automations.collapsedGroups';
 const UNGROUPED_KEY = '__ungrouped__';
+
+/** Touch-compatible drag-and-drop (§6 item 6, MOBILE_APP.md §6: "drag-to-
+ * reorder groups needs a touch DnD library"). Built on Pointer Events rather
+ * than the HTML5 Drag and Drop API the previous implementation used: HTML5
+ * DnD is mouse-only in practice — it does not fire from touch input in
+ * WKWebView (iOS) and is unreliable on Android WebView too — while Pointer
+ * Events unify mouse, touch and pen and both platforms' webviews support
+ * them. Drop targets are found via `document.elementFromPoint` against
+ * `data-dnd-type`/`data-dnd-id`/`data-dnd-group` attributes on each
+ * draggable/droppable element (see AutomationCard/GroupSection below),
+ * rather than the DOM event's own target, since a touch drag's "pointer"
+ * stays associated with whatever element it started on.
+ *
+ * UNVERIFIED ON A TOUCHSCREEN — see MOBILE_APP_IMPLEMENTATION.md's Phase 5
+ * writeup. Pointer Events are cross-platform per spec and this was
+ * exercised with a mouse during development (mouse is also a pointer type),
+ * but a real finger's contact-area/jitter characteristics differ enough
+ * from a mouse that this needs a device pass before trusting it.
+ */
+function usePointerDnD({ onDropAutomation, onDropGroup }) {
+  const [dragging, setDragging] = useState(null); // { type: 'automation'|'group', id }
+  const [over, setOver] = useState(null); // { type, id } | null
+  const draggingRef = useRef(null); // mirrors `dragging` for listeners added outside React's render cycle
+
+  // Group-section containers wrap their own automation cards, so a plain
+  // "closest [data-dnd-*]" search would find the nested card first even
+  // when dragging a *group* — groups only care about other groups as drop
+  // targets, so a group drag searches specifically for a group ancestor.
+  const findTarget = (x, y, dragType) => {
+    const el = document.elementFromPoint(x, y);
+    const selector = dragType === 'group' ? '[data-dnd-type="group"][data-dnd-id]' : '[data-dnd-type][data-dnd-id]';
+    const node = el?.closest(selector);
+    if (!node) return null;
+    return { type: node.getAttribute('data-dnd-type'), id: node.getAttribute('data-dnd-id'), group: node.getAttribute('data-dnd-group') };
+  };
+
+  const endDrag = (target) => {
+    const current = draggingRef.current;
+    draggingRef.current = null;
+    setDragging(null);
+    setOver(null);
+    if (!current || !target) return;
+    if (current.type === 'automation') {
+      if (target.type === 'automation' && target.id !== current.id) {
+        onDropAutomation(current.id, target.group === UNGROUPED_KEY ? null : target.group, target.id);
+      } else if (target.type === 'group') {
+        onDropAutomation(current.id, target.id === UNGROUPED_KEY ? null : target.id, null);
+      }
+    } else if (current.type === 'group') {
+      if (target.type === 'group' && target.id !== current.id && target.id !== UNGROUPED_KEY) {
+        onDropGroup(current.id, target.id);
+      }
+    }
+  };
+
+  const startDrag = (type, id) => (e) => {
+    if (e.button != null && e.button !== 0) return; // ignore non-primary mouse buttons
+    e.preventDefault();
+    const info = { type, id };
+    draggingRef.current = info;
+    setDragging(info);
+
+    const move = (ev) => {
+      if (!draggingRef.current) return;
+      ev.preventDefault();
+      setOver(findTarget(ev.clientX, ev.clientY, type));
+    };
+    const up = (ev) => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', up);
+      endDrag(findTarget(ev.clientX, ev.clientY, type));
+    };
+    window.addEventListener('pointermove', move, { passive: false });
+    window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', up);
+  };
+
+  /** Props for the small grab-handle element on a draggable item.
+   * `touch-action: none` (see .dnd-handle in App.css) is what stops the
+   * browser from treating the gesture as a page scroll before the drag
+   * logic above gets a chance to. */
+  const handleProps = (type, id) => ({
+    onPointerDown: startDrag(type, id),
+    className: 'dnd-handle' + (dragging?.type === type && dragging?.id === id ? ' dnd-dragging' : ''),
+  });
+
+  /** Data-dnd-* attributes for the droppable container itself (an
+   * automation card or a group section) — findTarget() above reads these
+   * back via elementFromPoint().closest(). Callers combine this with their
+   * own className (see isOverTarget) rather than this hook owning
+   * className, since each container already computes its own class string. */
+  const dropTargetProps = (type, id, group) => ({
+    'data-dnd-type': type,
+    'data-dnd-id': id,
+    ...(group !== undefined ? { 'data-dnd-group': group } : {}),
+  });
+
+  const isOverTarget = (type, id) => over?.type === type && over?.id === id;
+
+  return { handleProps, dropTargetProps, isOverTarget, isDragging: !!dragging };
+}
 
 function loadCollapsedGroups() {
   try {
@@ -236,38 +336,18 @@ function saveCollapsedGroups(set) {
   }
 }
 
-function AutomationCard({ automation, onEdit, onDelete, onDragAutomation }) {
-  const [dragOver, setDragOver] = useState(false);
-
-  const handleDrop = (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setDragOver(false);
-    const draggedId = e.dataTransfer.getData(AUTOMATION_DND_TYPE);
-    if (draggedId && draggedId !== automation.id) {
-      onDragAutomation(draggedId, automation.group_id ?? null, automation.id);
-    }
-  };
-
+function AutomationCard({ automation, onEdit, onDelete, dnd }) {
+  const groupKey = automation.group_id ?? UNGROUPED_KEY;
   return (
     <div
-      className={'panel automation-card' + (dragOver ? ' automation-drop-target' : '')}
+      className={'panel automation-card' + (dnd.isOverTarget('automation', automation.id) ? ' automation-drop-target' : '')}
       style={{ padding: 14 }}
-      draggable
-      onDragStart={(e) => {
-        e.dataTransfer.setData(AUTOMATION_DND_TYPE, automation.id);
-        e.dataTransfer.effectAllowed = 'move';
-      }}
-      onDragOver={(e) => {
-        if (e.dataTransfer.types.includes(AUTOMATION_DND_TYPE)) e.preventDefault();
-      }}
-      onDragEnter={(e) => {
-        if (e.dataTransfer.types.includes(AUTOMATION_DND_TYPE)) setDragOver(true);
-      }}
-      onDragLeave={() => setDragOver(false)}
-      onDrop={handleDrop}
+      {...dnd.dropTargetProps('automation', automation.id, groupKey)}
     >
       <div className="automation-card-header">
+        <span {...dnd.handleProps('automation', automation.id)} title="Drag to reorder or move to another group">
+          ⠿
+        </span>
         <h3>{automation.name}</h3>
         <span className="muted">{periodLabel(automation)}</span>
       </div>
@@ -301,18 +381,17 @@ function GroupSection({
   automations,
   onEdit,
   onDelete,
-  onDragAutomation,
   onRename,
   onDeleteGroup,
-  onDragGroup,
   hideHeader,
   collapsed,
   onToggleCollapsed,
+  dnd,
 }) {
-  const [dragOver, setDragOver] = useState(false);
   const [nameDraft, setNameDraft] = useState(group?.name ?? '');
 
   const isUngrouped = group === null;
+  const groupKey = isUngrouped ? UNGROUPED_KEY : group.id;
 
   // Keep the input in sync when the group's name changes from elsewhere (e.g. a reload).
   useEffect(() => {
@@ -329,46 +408,18 @@ function GroupSection({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nameDraft]);
 
-  const handleDrop = (e) => {
-    e.preventDefault();
-    setDragOver(false);
-    const draggedAutomationId = e.dataTransfer.getData(AUTOMATION_DND_TYPE);
-    if (draggedAutomationId) {
-      onDragAutomation(draggedAutomationId, isUngrouped ? null : group.id, null);
-      return;
-    }
-    const draggedGroupId = e.dataTransfer.getData(GROUP_DND_TYPE);
-    if (draggedGroupId && !isUngrouped && draggedGroupId !== group.id) {
-      onDragGroup(draggedGroupId, group.id);
-    }
-  };
-
   return (
     <div
-      className={'automation-group' + (dragOver ? ' automation-drop-target' : '')}
-      onDragOver={(e) => {
-        if (e.dataTransfer.types.includes(AUTOMATION_DND_TYPE) || e.dataTransfer.types.includes(GROUP_DND_TYPE)) {
-          e.preventDefault();
-        }
-      }}
-      onDragEnter={(e) => {
-        if (e.dataTransfer.types.includes(AUTOMATION_DND_TYPE) || e.dataTransfer.types.includes(GROUP_DND_TYPE)) {
-          setDragOver(true);
-        }
-      }}
-      onDragLeave={() => setDragOver(false)}
-      onDrop={handleDrop}
+      className={'automation-group' + (dnd.isOverTarget('group', groupKey) ? ' automation-drop-target' : '')}
+      {...dnd.dropTargetProps('group', groupKey)}
     >
       {!hideHeader && (
-        <div
-          className="automation-group-header"
-          draggable={!isUngrouped}
-          onDragStart={(e) => {
-            if (isUngrouped) return;
-            e.dataTransfer.setData(GROUP_DND_TYPE, group.id);
-            e.dataTransfer.effectAllowed = 'move';
-          }}
-        >
+        <div className="automation-group-header">
+          {!isUngrouped && (
+            <span {...dnd.handleProps('group', groupKey)} title="Drag to reorder groups">
+              ⠿
+            </span>
+          )}
           <button
             type="button"
             className="automation-group-collapse-btn"
@@ -402,7 +453,7 @@ function GroupSection({
       {!collapsed && (
         <div className="automation-grid">
           {automations.map((a) => (
-            <AutomationCard key={a.id} automation={a} onEdit={onEdit} onDelete={onDelete} onDragAutomation={onDragAutomation} />
+            <AutomationCard key={a.id} automation={a} onEdit={onEdit} onDelete={onDelete} dnd={dnd} />
           ))}
           {automations.length === 0 && <p className="muted">Drag automations here.</p>}
         </div>
@@ -665,6 +716,8 @@ export default function AutomationsView() {
     }
   };
 
+  const dnd = usePointerDnD({ onDropAutomation: handleDragAutomation, onDropGroup: handleDragGroup });
+
   if (loading) return <p>Loading…</p>;
 
   const automationsByGroup = new Map(groups.map((g) => [g.id, []]));
@@ -753,12 +806,11 @@ export default function AutomationsView() {
             setShowForm(true);
           }}
           onDelete={handleDelete}
-          onDragAutomation={handleDragAutomation}
           onRename={handleRenameGroup}
           onDeleteGroup={handleDeleteGroup}
-          onDragGroup={handleDragGroup}
           collapsed={collapsedGroups.has(g.id)}
           onToggleCollapsed={() => toggleGroupCollapsed(g.id)}
+          dnd={dnd}
         />
       ))}
 
@@ -771,10 +823,10 @@ export default function AutomationsView() {
             setShowForm(true);
           }}
           onDelete={handleDelete}
-          onDragAutomation={handleDragAutomation}
           hideHeader={groups.length === 0}
           collapsed={collapsedGroups.has(UNGROUPED_KEY)}
           onToggleCollapsed={() => toggleGroupCollapsed(UNGROUPED_KEY)}
+          dnd={dnd}
         />
       )}
 

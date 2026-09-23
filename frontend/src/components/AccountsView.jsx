@@ -11,13 +11,24 @@ function todayLedger() {
   return formatLedger(new Date());
 }
 
-function AccountNode({ node, depth, selected, onSelect, expandAll }) {
-  const [open, setOpen] = useState(depth < 1);
+function AccountNode({ node, depth, selected, onSelect, expandAll, collapseSignal }) {
+  // Phase 5 §6 item 6 (MOBILE_APP.md §6: "tree needs collapsing by
+  // default"): every level starts collapsed, not just depth >= 1 — a deep
+  // chart of accounts is a lot of vertical scroll on a phone before you've
+  // even picked one. `collapseSignal` bumps (a changing number, not a
+  // boolean, since a plain flag can't re-trigger an already-false state) to
+  // force every node back closed via the toolbar's "Collapse all" button.
+  const [open, setOpen] = useState(false);
   const hasChildren = node.children.length > 0;
 
   useEffect(() => {
     if (expandAll) setOpen(true);
   }, [expandAll]);
+
+  useEffect(() => {
+    if (collapseSignal) setOpen(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [collapseSignal]);
 
   return (
     <div className="account-node">
@@ -48,6 +59,7 @@ function AccountNode({ node, depth, selected, onSelect, expandAll }) {
               selected={selected}
               onSelect={onSelect}
               expandAll={expandAll}
+              collapseSignal={collapseSignal}
             />
           ))}
         </div>
@@ -62,6 +74,13 @@ export default function AccountsView() {
   const [error, setError] = useState(null);
   const [selected, setSelected] = useState(null);
   const [accountFilter, setAccountFilter] = useState('');
+  // Phase 5 §6 item 6: manual "Expand all / Collapse all" toggle, on top of
+  // the tree's new collapsed-by-default state and the existing
+  // search-driven auto-expand. `collapseSignal` is a bumped counter (see
+  // AccountNode) rather than a boolean because forcing already-open nodes
+  // shut needs an edge to react to, not just a false prop value.
+  const [forceExpandAll, setForceExpandAll] = useState(false);
+  const [collapseSignal, setCollapseSignal] = useState(0);
   const [history, setHistory] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(false);
 
@@ -346,7 +365,7 @@ export default function AccountsView() {
           {dateTransactions.length === 0 ? (
             <p className="muted">No postings on this date.</p>
           ) : (
-            <table>
+            <table className="responsive-table">
               <thead>
                 <tr>
                   <th>Payee</th>
@@ -357,8 +376,8 @@ export default function AccountsView() {
               <tbody>
                 {dateTransactions.map((t) => (
                   <tr key={`${t.file}:${t.beg_line}`}>
-                    <td>{t.payee}</td>
-                    <td>
+                    <td data-label="Payee">{t.payee}</td>
+                    <td data-label="Postings">
                       <div className="postings-list">
                         {t.postings.map((p, i) => (
                           <div className="posting-line" key={i}>
@@ -398,6 +417,15 @@ export default function AccountsView() {
           value={accountFilter}
           onChange={(e) => setAccountFilter(e.target.value)}
         />
+        <button
+          className="btn btn-small"
+          onClick={() => {
+            if (forceExpandAll) setCollapseSignal((n) => n + 1);
+            setForceExpandAll((v) => !v);
+          }}
+        >
+          {forceExpandAll ? 'Collapse all' : 'Expand all'}
+        </button>
         <button className="btn btn-primary" onClick={() => setEditing('new-account')}>
           + New account
         </button>
@@ -414,7 +442,8 @@ export default function AccountsView() {
               depth={0}
               selected={selected}
               onSelect={setSelected}
-              expandAll={!!accountFilter.trim()}
+              expandAll={!!accountFilter.trim() || forceExpandAll}
+              collapseSignal={collapseSignal}
             />
           ))
         )}

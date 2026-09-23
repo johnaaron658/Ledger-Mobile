@@ -8,6 +8,9 @@ import AnalysisView from './components/AnalysisView';
 import AutomationsView from './components/AutomationsView';
 import CommoditiesView from './components/CommoditiesView';
 import ImportScreen from './components/ImportScreen';
+import ExportBar from './components/ExportBar';
+import BiometricLock, { BiometricToggle } from './components/BiometricLock';
+import QuickAddButton from './components/QuickAddButton';
 import './App.css';
 
 const TABS = [
@@ -20,7 +23,20 @@ const TABS = [
 ];
 
 export default function App() {
+  return (
+    <BiometricLock>
+      <AppContent />
+    </BiometricLock>
+  );
+}
+
+function AppContent() {
   const [tab, setTab] = useState('transactions');
+  // Bumped on undo (§6 item 4) so the active view remounts and refetches
+  // instead of showing stale in-memory state after the journal underneath
+  // it changed. Cheap and correct: every view already loads its own data
+  // in a mount-time effect (see e.g. TransactionsView's `load()`).
+  const [refreshKey, setRefreshKey] = useState(0);
   // Load the display currency before any view renders money, so nothing flashes the
   // default symbol first. Views re-read it via format.js, so no prop threading.
   const [currencyLoaded, setCurrencyLoaded] = useState(false);
@@ -82,16 +98,19 @@ export default function App() {
             </button>
           ))}
         </nav>
+        <BiometricToggle />
+        <ExportBar onUndo={() => setRefreshKey((k) => k + 1)} />
       </header>
       <main className="app-main">
         {!currencyLoaded && <p className="muted">Loading…</p>}
-        {currencyLoaded && tab === 'transactions' && <TransactionsView />}
-        {currencyLoaded && tab === 'budgets' && <BudgetsView />}
-        {currencyLoaded && tab === 'accounts' && <AccountsView />}
-        {currencyLoaded && tab === 'analysis' && <AnalysisView />}
-        {currencyLoaded && tab === 'automations' && <AutomationsView />}
-        {currencyLoaded && tab === 'commodities' && <CommoditiesView />}
+        {currencyLoaded && tab === 'transactions' && <TransactionsView key={refreshKey} />}
+        {currencyLoaded && tab === 'budgets' && <BudgetsView key={refreshKey} />}
+        {currencyLoaded && tab === 'accounts' && <AccountsView key={refreshKey} />}
+        {currencyLoaded && tab === 'analysis' && <AnalysisView key={refreshKey} />}
+        {currencyLoaded && tab === 'automations' && <AutomationsView key={refreshKey} />}
+        {currencyLoaded && tab === 'commodities' && <CommoditiesView key={refreshKey} />}
       </main>
+      {currencyLoaded && <QuickAddButton onSaved={() => setRefreshKey((k) => k + 1)} />}
     </div>
   );
 }

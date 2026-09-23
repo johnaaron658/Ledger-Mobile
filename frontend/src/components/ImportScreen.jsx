@@ -1,28 +1,16 @@
 import { useState } from 'react';
 import { api } from '../api';
+import { pickBinaryFile, pickTextFile } from '../capacitorAdapter';
 
-// §5.4's first-run import flow, built and debugged in the browser (Phase 4)
-// so Phase 5 only has to swap the file input for a native document picker.
+// §5.4's first-run import flow, built and debugged in the browser (Phase 4).
+// Phase 5 (§6 item 2) swaps the raw <input type="file"> for
+// capacitorAdapter's pickTextFile/pickBinaryFile, which open the platform
+// document picker natively and fall back to the same kind of hidden
+// <input type="file"> in a plain browser — see capacitorAdapter.js's header.
+// The rest of this flow (validate before persist, confirmation summary,
+// config bundle, re-import confirm) is unchanged from Phase 4.
 // Renders in place of the six tabs whenever api.hasJournal() resolves false
 // — see App.jsx.
-
-function readFileAsText(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result);
-    reader.onerror = () => reject(reader.error);
-    reader.readAsText(file);
-  });
-}
-
-function readFileAsBytes(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(new Uint8Array(reader.result));
-    reader.onerror = () => reject(reader.error);
-    reader.readAsArrayBuffer(file);
-  });
-}
 
 function ImportErrors({ errors }) {
   return (
@@ -47,15 +35,13 @@ function ConfigStep({ onDone }) {
   const [result, setResult] = useState(null);
   const [mode, setMode] = useState('merge');
 
-  const pick = async (e) => {
-    const file = e.target.files?.[0];
-    e.target.value = '';
-    if (!file) return;
+  const pick = async () => {
     setImporting(true);
     setError(null);
     try {
-      const bytes = await readFileAsBytes(file);
-      const res = await api.importConfig(bytes, mode);
+      const picked = await pickBinaryFile({ types: ['application/zip'] });
+      if (!picked) return; // user canceled the picker
+      const res = await api.importConfig(picked.bytes, mode);
       setResult(res);
     } catch (err) {
       setError(err.message);
@@ -91,10 +77,9 @@ function ConfigStep({ onDone }) {
         </select>
       </div>
       <div style={{ display: 'flex', gap: 10, marginTop: 14 }}>
-        <label className="btn" style={{ opacity: importing ? 0.6 : 1 }}>
+        <button className="btn" onClick={pick} disabled={importing}>
           {importing ? 'Importing…' : 'Choose backup .zip'}
-          <input type="file" accept=".zip" onChange={pick} disabled={importing} style={{ display: 'none' }} />
-        </label>
+        </button>
         <button className="btn btn-primary" onClick={onDone} disabled={importing}>
           Continue to dashboard
         </button>
@@ -109,15 +94,13 @@ export default function ImportScreen({ onImported }) {
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
 
-  const pickJournal = async (e) => {
-    const file = e.target.files?.[0];
-    e.target.value = '';
-    if (!file) return;
+  const pickJournal = async () => {
     setError(null);
     try {
-      const text = await readFileAsText(file);
-      const result = api.previewJournal(text);
-      setPreview({ file, text, result });
+      const picked = await pickTextFile({ types: ['text/plain', 'application/octet-stream'] });
+      if (!picked) return; // user canceled the picker
+      const result = api.previewJournal(picked.text);
+      setPreview({ name: picked.name, text: picked.text, result });
     } catch (err) {
       setError(err.message);
     }
@@ -182,13 +165,12 @@ export default function ImportScreen({ onImported }) {
         )}
 
         <div style={{ display: 'flex', gap: 10, marginTop: 16, flexWrap: 'wrap' }}>
-          <label className="btn" style={{ opacity: busy ? 0.6 : 1 }}>
+          <button className="btn" onClick={pickJournal} disabled={busy}>
             Choose .ledger file
-            <input type="file" accept=".ledger,.journal,text/plain" onChange={pickJournal} disabled={busy} style={{ display: 'none' }} />
-          </label>
+          </button>
           {preview?.result?.ok && (
             <button className="btn btn-primary" onClick={confirmImport} disabled={busy}>
-              {busy ? 'Importing…' : `Import "${preview.file.name}"`}
+              {busy ? 'Importing…' : `Import "${preview.name}"`}
             </button>
           )}
           <button className="btn" onClick={startNew} disabled={busy}>
