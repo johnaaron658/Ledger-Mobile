@@ -3,7 +3,8 @@
   "private": true,
   "workspaces": [
     "core",
-    "engine"
+    "engine",
+    "frontend"
   ],
   "scripts": {
     "test": "npm run test --workspaces --if-present"
