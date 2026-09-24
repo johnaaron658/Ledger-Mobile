@@ -59,7 +59,98 @@ function ClickableDot({ cx, cy, stroke, payload, dataKey, onPointClick, r = 4 })
   );
 }
 
-function CategoryCard({ cat, total, dragOver, onDragOver, onDragLeave, onDrop, onRename, onToggleHidden, onToggleBalance, onToggleForecast, onForecastLookbackChange, onDelete, onUnassign, onChipDragStart }) {
+/** True on a finger-driven device. Drag-and-drop between the payee pool and
+ * category cards is HTML5 DnD (mouse-only in practice, and fiddly on a
+ * phone-sized screen even where it works), so touch devices get
+ * tap-to-assign via AssignSheet instead. */
+function useCoarsePointer() {
+  const query = '(pointer: coarse)';
+  const [coarse, setCoarse] = useState(() => window.matchMedia?.(query).matches ?? false);
+  useEffect(() => {
+    const mql = window.matchMedia?.(query);
+    if (!mql) return;
+    const onChange = (e) => setCoarse(e.matches);
+    mql.addEventListener('change', onChange);
+    return () => mql.removeEventListener('change', onChange);
+  }, []);
+  return coarse;
+}
+
+/** Bottom sheet for picking which categories one payee/account belongs to.
+ * Radio (single category + "None") unless the analysis allows payees in
+ * multiple categories, in which case it's a checkbox list. */
+function AssignSheet({ item, categories, multi, onApply, onCreateCategory, onClose }) {
+  const field = item.kind === 'payee' ? 'payees' : 'accounts';
+  const [selected, setSelected] = useState(
+    () => new Set(categories.filter((c) => c[field].includes(item.name)).map((c) => c.id))
+  );
+
+  const toggle = (id) => {
+    setSelected((prev) => {
+      if (!multi) return new Set(prev.has(id) ? [] : [id]);
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <h3>Assign {item.kind}</h3>
+        <div className="assign-sheet-item">
+          <span className="assign-sheet-name">{item.name}</span>
+          {item.total != null && <span className="money muted">{formatMoney(item.total)}</span>}
+        </div>
+        {categories.length === 0 ? (
+          <p className="muted">No categories yet.</p>
+        ) : (
+          <div className="assign-sheet-list" role={multi ? 'group' : 'radiogroup'}>
+            {!multi && (
+              <label className="assign-sheet-option">
+                <input type="radio" checked={selected.size === 0} onChange={() => setSelected(new Set())} />
+                <span className="color-swatch" style={swatchStyle(null)} />
+                <span className="muted">None (uncategorized)</span>
+              </label>
+            )}
+            {categories.map((c) => (
+              <label key={c.id} className="assign-sheet-option">
+                <input
+                  type={multi ? 'checkbox' : 'radio'}
+                  checked={selected.has(c.id)}
+                  onChange={() => toggle(c.id)}
+                />
+                <span className="color-swatch" style={swatchStyle(c.color_index)} />
+                <span className="assign-sheet-option-name">{c.name}</span>
+              </label>
+            ))}
+          </div>
+        )}
+        <button type="button" className="btn btn-small" style={{ marginTop: 10 }} onClick={onCreateCategory}>
+          + New category
+        </button>
+        <div className="modal-actions">
+          <button type="button" className="btn" onClick={onClose}>
+            Cancel
+          </button>
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={() => {
+              onApply(selected);
+              onClose();
+            }}
+          >
+            Save
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CategoryCard({ cat, total, dragOver, onDragOver, onDragLeave, onDrop, onRename, onToggleHidden, onToggleBalance, onToggleForecast, onForecastLookbackChange, onDelete, onUnassign, onChipDragStart, onChipTap }) {
   const [expanded, setExpanded] = useState(false);
   const [overflowing, setOverflowing] = useState(false);
   const payeesRef = useRef(null);
@@ -113,20 +204,43 @@ function CategoryCard({ cat, total, dragOver, onDragOver, onDragLeave, onDrop, o
       </label>
       <div className={'category-payees' + (expanded ? ' expanded' : '')} ref={payeesRef}>
         {cat.payees.map((p) => (
-          <span className="assigned-chip" key={`p-${p}`} draggable onDragStart={(e) => onChipDragStart('payee', p, e)}>
+          <span
+            className="assigned-chip"
+            key={`p-${p}`}
+            draggable={!onChipTap}
+            onDragStart={(e) => onChipDragStart('payee', p, e)}
+            onClick={onChipTap ? () => onChipTap('payee', p) : undefined}
+          >
             {p}
-            <button onClick={() => onUnassign('payee', p)}>✕</button>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onUnassign('payee', p);
+              }}
+              aria-label={`Remove ${p}`}
+            >
+              ✕
+            </button>
           </span>
         ))}
         {cat.accounts.map((a) => (
           <span
             className="assigned-chip assigned-chip-account"
             key={`a-${a}`}
-            draggable
+            draggable={!onChipTap}
             onDragStart={(e) => onChipDragStart('account', a, e)}
+            onClick={onChipTap ? () => onChipTap('account', a) : undefined}
           >
             {a}
-            <button onClick={() => onUnassign('account', a)}>✕</button>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onUnassign('account', a);
+              }}
+              aria-label={`Remove ${a}`}
+            >
+              ✕
+            </button>
           </span>
         ))}
       </div>
@@ -173,8 +287,10 @@ export default function AnalysisView() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
   const [note, setNote] = useState(null);
+  const [assigning, setAssigning] = useState(null); // { kind, name, total } | null — AssignSheet target
   const draggingRef = useRef(null);
   const breakdownRequestRef = useRef(0);
+  const isTouch = useCoarsePointer();
 
   useEffect(() => {
     (async () => {
@@ -601,6 +717,25 @@ export default function AnalysisView() {
     }
   };
 
+  const assignToCategories = (kind, itemName, categoryIds) => {
+    const field = fieldForKind(kind);
+    setCategories((prev) =>
+      prev.map((c) => {
+        const has = c[field].includes(itemName);
+        const want = categoryIds.has(c.id);
+        if (want && !has) return { ...c, [field]: [...c[field], itemName] };
+        if (!want && has) return { ...c, [field]: c[field].filter((n) => n !== itemName) };
+        return c;
+      })
+    );
+  };
+
+  const openAssign = (kind, itemName) => {
+    const pool = kind === 'payee' ? computed?.payees : computed?.accounts;
+    const total = pool?.find((x) => x.name === itemName)?.total ?? null;
+    setAssigning({ kind, name: itemName, total });
+  };
+
   const handleDragStart = (kind, name, e) => {
     const isPayee = kind === 'payee';
     const selected = isPayee ? selectedPayees : selectedAccounts;
@@ -746,7 +881,7 @@ export default function AnalysisView() {
         </div>
       )}
 
-      <div className="period-row">
+      <div className="period-row analysis-options">
         <label style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
           <input
             type="checkbox"
@@ -763,7 +898,7 @@ export default function AnalysisView() {
           />
           Allow payees in multiple categories
         </label>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+        <label className="forecast-to">
           Forecast to{' '}
           <input
             type="date"
@@ -783,7 +918,7 @@ export default function AnalysisView() {
         <span className="muted" style={{ fontSize: 13 }}>
           Exclude from totals (e.g. clearing accounts like a cash wallet):
         </span>
-        <div style={{ width: 260 }}>
+        <div className="exclude-input">
           <FuzzyCombobox
             value={excludeInput}
             onChange={(v) => {
@@ -837,7 +972,7 @@ export default function AnalysisView() {
 
       <div className="panel analysis-line-panel" style={{ padding: 16 }}>
         <div className="chart-area">
-        {visibleCategories.length > 0 && lineData.length > 0 ? (
+        {(visibleCategories.length > 0 || includeUncategorized) && lineData.length > 0 ? (
           <ResponsiveContainer width="100%" height="100%">
             <LineChart data={lineData} margin={{ top: 8, right: 16, left: 0, bottom: 8 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
@@ -915,7 +1050,7 @@ export default function AnalysisView() {
           </p>
         )}
         </div>
-        {lineData.length > 0 && visibleCategories.length > 0 && (
+        {lineData.length > 0 && (visibleCategories.length > 0 || includeUncategorized) && (
           <p className="muted chart-hint">Click a point to see which payees contributed to it.</p>
         )}
       </div>
@@ -952,6 +1087,18 @@ export default function AnalysisView() {
         </div>
       )}
 
+      {assigning && (
+        <AssignSheet
+          key={`${assigning.kind}:${assigning.name}`}
+          item={assigning}
+          categories={categories}
+          multi={allowMultiCategory}
+          onApply={(ids) => assignToCategories(assigning.kind, assigning.name, ids)}
+          onCreateCategory={() => addCategory()}
+          onClose={() => setAssigning(null)}
+        />
+      )}
+
       <div className="analysis-layout">
         <div
           className={'panel dropzone payee-pool' + (dragOverTarget === 'payee-pool' ? ' drag-over' : '')}
@@ -963,6 +1110,7 @@ export default function AnalysisView() {
           onDrop={handleDropOnPool}
         >
           <div className="payee-pool-header">Payees ({poolPayees.length})</div>
+          {isTouch && <p className="muted pool-hint">Tap a payee to choose its categories.</p>}
           <input
             type="text"
             className="payee-search"
@@ -976,9 +1124,9 @@ export default function AnalysisView() {
               <div
                 key={p.name}
                 className={'payee-chip' + (selectedPayees.has(p.name) ? ' selected' : '')}
-                draggable
+                draggable={!isTouch}
                 onDragStart={(e) => handleDragStart('payee', p.name, e)}
-                onClick={(e) => handleItemClick('payee', p.name, i, e)}
+                onClick={(e) => (isTouch ? openAssign('payee', p.name) : handleItemClick('payee', p.name, i, e))}
               >
                 <span className="payee-chip-name">
                   {memberOf.length > 0 && (
@@ -1010,6 +1158,7 @@ export default function AnalysisView() {
           onDrop={handleDropOnPool}
         >
           <div className="payee-pool-header">Accounts ({poolAccounts.length})</div>
+          {isTouch && <p className="muted pool-hint">Tap an account to choose its categories.</p>}
           <input
             type="text"
             className="payee-search"
@@ -1023,9 +1172,9 @@ export default function AnalysisView() {
               <div
                 key={a.name}
                 className={'payee-chip' + (selectedAccounts.has(a.name) ? ' selected' : '')}
-                draggable
+                draggable={!isTouch}
                 onDragStart={(e) => handleDragStart('account', a.name, e)}
-                onClick={(e) => handleItemClick('account', a.name, i, e)}
+                onClick={(e) => (isTouch ? openAssign('account', a.name) : handleItemClick('account', a.name, i, e))}
               >
                 <span className="payee-chip-name">
                   {memberOf.length > 0 && (
@@ -1068,6 +1217,7 @@ export default function AnalysisView() {
               onDelete={() => deleteCategory(cat.id)}
               onUnassign={(kind, name) => unassign(cat.id, kind, name)}
               onChipDragStart={handleDragStart}
+              onChipTap={isTouch ? openAssign : undefined}
             />
           ))}
           <div className="new-category-card">

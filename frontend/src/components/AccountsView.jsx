@@ -6,6 +6,7 @@ import { formatMoney } from '../format';
 import { parseLedger, formatLedger } from '../dateUtils';
 import TransactionForm from './TransactionForm';
 import DateRangeSlider from './DateRangeSlider';
+import TruncateStart from './TruncateStart';
 
 function todayLedger() {
   return formatLedger(new Date());
@@ -381,7 +382,7 @@ export default function AccountsView() {
                       <div className="postings-list">
                         {t.postings.map((p, i) => (
                           <div className="posting-line" key={i}>
-                            <span>{p.account}</span>
+                            <TruncateStart text={p.account} />
                             <span className="money">{p.amount_raw}</span>
                           </div>
                         ))}

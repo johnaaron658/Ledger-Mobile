@@ -2,6 +2,12 @@
   display: flex;
   flex-direction: column;
   min-height: 100svh;
+  /* Last-resort guard: nothing should ever make the whole page scroll
+     sideways on a phone. `clip` (unlike `hidden`) doesn't create a scroll
+     container, so the sticky header keeps working. Individual overflow
+     causes are still fixed at the source below. */
+  overflow-x: clip;
+  --bottom-nav-h: 60px;
 }
 
 .app-header {
@@ -74,12 +80,15 @@
   width: 56px;
   height: 56px;
   border-radius: 50%;
-  border: none;
-  background: var(--accent);
-  color: white;
-  font-size: 28px;
-  line-height: 1;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.28);
+  /* See-through: a faint accent tint + a solid accent outline, so it reads
+     as a button without hiding the row underneath it. */
+  border: 2px solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
   cursor: pointer;
   z-index: 20;
   /* Keeps the FAB clear of iOS/Android gesture-nav insets */
@@ -91,8 +100,44 @@
   transform: scale(0.94);
 }
 
-.app-header h1 {
+.app-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.app-logo {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: var(--accent);
+  color: white;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+}
+
+.app-title h1 {
   font-size: 18px;
+  min-width: 0;
+}
+
+.app-subtitle {
+  display: none;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-left: auto;
+  flex-wrap: wrap;
+}
+
+.biometric-text-short {
+  display: none;
 }
 
 .tabs {
@@ -101,6 +146,9 @@
 }
 
 .tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   padding: 8px 16px;
   border: none;
   background: transparent;
@@ -117,6 +165,12 @@
 .tab.active {
   background: var(--accent-bg);
   color: var(--accent);
+}
+
+.tab-icon {
+  width: 16px;
+  height: 16px;
+  flex: none;
 }
 
 .app-main {
@@ -143,7 +197,7 @@
 
 .search-input {
   flex: 1;
-  min-width: 200px;
+  min-width: min(200px, 100%);
   padding: 8px 12px;
   border: 1px solid var(--border);
   border-radius: 6px;
@@ -259,6 +313,10 @@ tbody tr:hover {
   display: flex;
   justify-content: space-between;
   gap: 12px;
+}
+
+.posting-line .truncate-start {
+  flex: 1;
 }
 
 /* --- Responsive table -> card list (§6 item 6) ---
@@ -380,6 +438,8 @@ tbody tr:hover {
 }
 
 .form-row input, .form-row select {
+  width: 100%;
+  min-width: 0;
   padding: 8px 10px;
   border: 1px solid var(--border);
   border-radius: 6px;
@@ -388,7 +448,7 @@ tbody tr:hover {
 
 .posting-row {
   display: grid;
-  grid-template-columns: 1fr 140px auto;
+  grid-template-columns: minmax(0, 1fr) 140px auto;
   gap: 8px;
   margin-bottom: 8px;
   align-items: start;
@@ -442,7 +502,7 @@ tbody tr:hover {
 
 .budget-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(240px, 100%), 1fr));
   gap: 14px;
 }
 
@@ -563,6 +623,8 @@ tbody tr:hover {
 
 .account-name {
   flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .disclosure {
@@ -591,7 +653,8 @@ tbody tr:hover {
 
 .period-row {
   display: flex;
-  gap: 10px;
+  flex-wrap: wrap;
+  gap: 10px 16px;
   align-items: center;
   margin-bottom: 16px;
   font-size: 13px;
@@ -763,15 +826,50 @@ tbody tr:hover {
 
 .date-range-slider-ticks {
   position: relative;
-  height: 16px;
-  margin-top: 4px;
+  height: 24px;
+  /* inset by the thumb radius so ticks line up with thumb centers */
+  margin: 0 9px;
 }
 
 .date-range-slider-tick {
   position: absolute;
+  top: 0;
+  width: 1px;
+  height: 6px;
+  background: var(--text-muted);
+}
+
+.date-range-slider-tick-label {
+  position: absolute;
+  top: 8px;
   font-size: 11px;
   color: var(--text-muted);
   white-space: nowrap;
+}
+
+.tick-align-start {
+  left: 0;
+}
+
+.tick-align-middle {
+  left: 0;
+  transform: translateX(-50%);
+}
+
+.tick-align-end {
+  right: 0;
+}
+
+@media (pointer: coarse) {
+  .date-range-slider-ticks {
+    margin: 0 13px;
+  }
+}
+
+@media (max-width: 640px) {
+  .date-range-slider-tick-label:not(.tick-edge) {
+    display: none;
+  }
 }
 
 .exclude-row {
@@ -814,8 +912,12 @@ tbody tr:hover {
   .analysis-charts-row {
     flex-direction: column;
   }
-  .analysis-chart-panel {
-    flex-basis: auto;
+  /* In a column flex container `flex: 1` (basis 0) collapses the line
+     chart's panel to nothing — its only content is a height:100% chart —
+     which is why only the pie showed on a phone. Size both by height. */
+  .analysis-chart-panel,
+  .analysis-line-panel {
+    flex: none;
     width: 100%;
   }
 }
@@ -880,14 +982,14 @@ tbody tr:hover {
 
 .analysis-layout {
   display: grid;
-  grid-template-columns: 260px 260px 1fr;
+  grid-template-columns: 260px 260px minmax(0, 1fr);
   gap: 16px;
   align-items: start;
 }
 
 @media (max-width: 900px) {
   .analysis-layout {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 
@@ -963,7 +1065,7 @@ tbody tr:hover {
 
 .category-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(240px, 100%), 1fr));
   gap: 24px;
 }
 
@@ -1184,7 +1286,7 @@ tbody tr:hover {
 
 .automation-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(280px, 100%), 1fr));
   gap: 14px;
   margin-bottom: 24px;
 }
@@ -1308,8 +1410,9 @@ tbody tr:hover {
 }
 
 .automation-group-name-input {
-  flex: 0 1 auto;
-  min-width: 80px;
+  flex: 1 1 0;
+  min-width: 60px;
+  max-width: 320px;
   border: none;
   background: transparent;
   font-size: 14px;
@@ -1376,4 +1479,540 @@ tbody tr:hover {
 .import-screen code {
   font-size: 12px;
   color: var(--text-muted);
+}
+
+/* --- Loading indicators --- */
+
+.spinner {
+  display: inline-block;
+  flex: none;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  vertical-align: middle;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.loading-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+}
+
+/* Indeterminate bar pinned to the top edge of a panel while it refreshes. */
+.progress-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  overflow: hidden;
+  z-index: 1;
+}
+
+.progress-bar::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 35%;
+  background: var(--accent);
+  animation: progress-slide 1s ease-in-out infinite;
+}
+
+@keyframes progress-slide {
+  from {
+    left: -35%;
+  }
+  to {
+    left: 100%;
+  }
+}
+
+.search-wrap {
+  position: relative;
+  flex: 1;
+  min-width: min(200px, 100%);
+  display: flex;
+}
+
+.search-wrap .search-input {
+  width: 100%;
+  min-width: 0;
+  padding-right: 36px;
+}
+
+.search-spinner {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+}
+
+/* --- Transactions table --- */
+
+.txn-panel {
+  position: relative;
+  overflow: hidden;
+}
+
+.txn-panel.is-busy .txn-table {
+  opacity: 0.55;
+  transition: opacity 0.15s;
+}
+
+.txn-table {
+  table-layout: fixed;
+}
+
+.txn-col-date {
+  width: 96px;
+}
+
+.txn-col-payee {
+  width: 28%;
+}
+
+.txn-col-edit {
+  width: 52px;
+}
+
+.txn-table td {
+  vertical-align: top;
+}
+
+.txn-date {
+  font-variant-numeric: tabular-nums;
+  line-height: 1.25;
+}
+
+.txn-date span {
+  display: block;
+}
+
+.txn-year {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.txn-payee {
+  overflow-wrap: anywhere;
+  color: var(--text-h);
+}
+
+.txn-posting {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.txn-account {
+  flex: 1;
+}
+
+.txn-amount {
+  flex: none;
+}
+
+td.txn-edit {
+  padding: 2px 4px;
+  text-align: right;
+  vertical-align: middle;
+}
+
+.truncate-start {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  direction: rtl;
+  text-align: left;
+}
+
+.icon-btn {
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.icon-btn:hover,
+.icon-btn:focus-visible {
+  background: var(--bg-alt);
+  color: var(--accent);
+}
+
+.icon-btn:active {
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+
+.show-more {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--border);
+  font-size: 13px;
+}
+
+/* --- Budgets summary --- */
+
+.summary-stats {
+  min-width: 0;
+}
+
+.summary-stats-title {
+  font-size: 12px;
+  margin-bottom: 6px;
+}
+
+.summary-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(3, max-content);
+  gap: 12px 32px;
+  margin-bottom: 12px;
+}
+
+.summary-stat-label {
+  font-size: 12px;
+}
+
+.summary-stat-value {
+  font-size: 22px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.exclude-input {
+  width: 260px;
+  max-width: 100%;
+}
+
+/* Free-standing search boxes (not inside a .form-row) had no input styling. */
+.exclude-input .combobox-input,
+.payee-search {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+}
+
+/* --- Analysis: tap-to-assign --- */
+
+.forecast-to {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.pool-hint {
+  font-size: 12px;
+  margin: 0 8px 6px;
+}
+
+.assign-sheet-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 12px;
+  font-weight: 600;
+  color: var(--text-h);
+}
+
+.assign-sheet-name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.assign-sheet-list {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  max-height: 50svh;
+  overflow-y: auto;
+}
+
+.assign-sheet-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 48px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+}
+
+.assign-sheet-option:last-child {
+  border-bottom: none;
+}
+
+.assign-sheet-option input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  flex: none;
+  accent-color: var(--accent);
+}
+
+.assign-sheet-option-name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.assigned-chip {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+@media (pointer: coarse) {
+  /* Automations move between groups via the edit form's Group field on
+     touch; only group reordering keeps a drag handle. */
+  .dnd-handle[data-dnd-kind='automation'] {
+    display: none;
+  }
+  .dnd-handle {
+    padding: 10px;
+    margin: -10px -4px;
+  }
+  .assigned-chip {
+    padding: 6px 8px;
+  }
+  .assigned-chip button {
+    padding: 4px;
+    margin: -4px -4px -4px 0;
+  }
+  .payee-chip {
+    padding: 10px 8px;
+    cursor: pointer;
+  }
+}
+
+/* --- Phone layout ---
+   Tabs become a fixed bottom bar of icons; the header (logo, current
+   section, biometric lock, export) stays sticky on top; quick-add floats
+   bottom-center just above the tab bar; modals become bottom sheets. */
+@media (max-width: 640px) {
+  .app-header {
+    position: sticky;
+    top: 0;
+    z-index: 30;
+    gap: 6px 12px;
+    padding: 10px 12px;
+    flex-wrap: wrap;
+  }
+
+  .app-title {
+    flex: 1;
+  }
+
+  .app-name {
+    display: none;
+  }
+
+  .app-subtitle {
+    display: block;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
+  /* Flatten the action groups so their pieces lay out in the header row
+     directly, and the export nudge can drop to its own full-width line. */
+  .header-actions,
+  .export-bar {
+    display: contents;
+  }
+
+  .export-nudge {
+    order: 99;
+    flex-basis: 100%;
+    text-align: center;
+  }
+
+  .export-note {
+    order: 98;
+  }
+
+  .biometric-text-long {
+    display: none;
+  }
+
+  .biometric-text-short {
+    display: inline;
+  }
+
+  .tabs {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 40;
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 2px;
+    padding: 4px 6px calc(4px + env(safe-area-inset-bottom, 0px));
+    background: var(--bg-alt);
+    border-top: 1px solid var(--border);
+  }
+
+  .tab {
+    height: calc(var(--bottom-nav-h) - 8px);
+    padding: 0;
+    justify-content: center;
+    border-radius: 10px;
+  }
+
+  .tab:hover {
+    background: transparent;
+  }
+
+  .tab.active {
+    background: var(--accent-bg);
+  }
+
+  .tab-label {
+    /* visually hidden; the button's aria-label/title name it */
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .tab-icon {
+    width: 24px;
+    height: 24px;
+  }
+
+  .app-main {
+    padding: 12px 12px calc(var(--bottom-nav-h) + 96px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .quick-add-fab {
+    left: 50%;
+    right: auto;
+    bottom: calc(var(--bottom-nav-h) + 12px + env(safe-area-inset-bottom, 0px));
+    margin: 0;
+    transform: translateX(-50%);
+    z-index: 35;
+  }
+
+  .quick-add-fab:active {
+    transform: translateX(-50%) scale(0.94);
+  }
+
+  /* Modals -> bottom sheets. margin-top:auto (not align-items:flex-end)
+     keeps a sheet taller than the screen scrollable from its top. */
+  .modal-backdrop {
+    padding: 24px 0 0;
+  }
+
+  .modal {
+    margin-top: auto;
+    max-width: none;
+    border-radius: 16px 16px 0 0;
+    border-bottom: none;
+    padding: 18px 16px calc(18px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .modal-actions .btn {
+    flex: 1;
+  }
+
+  .posting-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    padding-bottom: 8px;
+    border-bottom: 1px dashed var(--border);
+  }
+
+  .posting-row > .combobox {
+    grid-column: 1 / -1;
+  }
+
+  /* Transactions table: tighter columns so all four fit at ~360px. */
+  .txn-table {
+    font-size: 13px;
+  }
+
+  .txn-table th,
+  .txn-table td {
+    padding: 8px 6px;
+  }
+
+  .txn-col-date {
+    width: 46px;
+  }
+
+  .txn-col-payee {
+    width: 26%;
+  }
+
+  .txn-col-edit {
+    width: 44px;
+  }
+
+  .summary-stats-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px 16px;
+  }
+
+  .summary-stats-grid > :last-child {
+    grid-column: 1 / -1;
+  }
+
+  .summary-stat-value {
+    font-size: 18px;
+  }
+
+  .analysis-toolbar input[type='text'] {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .analysis-toolbar select {
+    flex: 1 1 100%;
+    max-width: 100%;
+  }
+
+  .analysis-options {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .payee-pool {
+    max-height: 380px;
+  }
+
+  .breakdown-title {
+    min-width: 0;
+    flex-wrap: wrap;
+  }
+
+  .automation-group {
+    margin: 0 0 18px;
+  }
 }

@@ -85,13 +85,22 @@ export default function DateRangeSlider({ minDate, maxDate, startDate, endDate, 
         />
       </div>
 
+      {/* Tick marks are plain lines; the date labels under them would
+          overlap on a phone, so below 640px only the first/last label (the
+          full data range) is kept — the selected range is already spelled
+          out in the header above. */}
       <div className="date-range-slider-ticks">
-        {tickIndices.map((i) => {
+        {tickIndices.map((i, n) => {
           const p = pct(i);
-          const transform = p <= 0.5 ? 'translateX(0)' : p >= 99.5 ? 'translateX(-100%)' : 'translateX(-50%)';
+          const align = p <= 0.5 ? 'start' : p >= 99.5 ? 'end' : 'middle';
+          const edge = n === 0 || n === tickIndices.length - 1;
           return (
-            <span key={i} className="date-range-slider-tick" style={{ left: `${p}%`, transform }}>
-              {labelFor(periods[i].start, granularity)}
+            <span key={i} className="date-range-slider-tick" style={{ left: `${p}%` }}>
+              <span
+                className={`date-range-slider-tick-label tick-align-${align}${edge ? ' tick-edge' : ''}`}
+              >
+                {labelFor(periods[i].start, granularity)}
+              </span>
             </span>
           );
         })}

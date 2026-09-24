@@ -11,16 +11,39 @@ import ImportScreen from './components/ImportScreen';
 import ExportBar from './components/ExportBar';
 import BiometricLock, { BiometricToggle } from './components/BiometricLock';
 import QuickAddButton from './components/QuickAddButton';
+import {
+  LogoIcon,
+  TransactionsIcon,
+  BudgetsIcon,
+  AccountsIcon,
+  AnalysisIcon,
+  AutomationsIcon,
+  CommoditiesIcon,
+} from './components/Icons';
 import './App.css';
 
 const TABS = [
-  { key: 'transactions', label: 'Transactions' },
-  { key: 'budgets', label: 'Budgets' },
-  { key: 'accounts', label: 'Accounts' },
-  { key: 'analysis', label: 'Analysis' },
-  { key: 'automations', label: 'Automations' },
-  { key: 'commodities', label: 'Commodities' },
+  { key: 'transactions', label: 'Transactions', Icon: TransactionsIcon },
+  { key: 'budgets', label: 'Budgets', Icon: BudgetsIcon },
+  { key: 'accounts', label: 'Accounts', Icon: AccountsIcon },
+  { key: 'analysis', label: 'Analysis', Icon: AnalysisIcon },
+  { key: 'automations', label: 'Automations', Icon: AutomationsIcon },
+  { key: 'commodities', label: 'Commodities', Icon: CommoditiesIcon },
 ];
+
+function AppTitle({ subtitle }) {
+  return (
+    <div className="app-title">
+      <span className="app-logo">
+        <LogoIcon size={20} />
+      </span>
+      <h1>
+        <span className="app-name">Ledger Dashboard</span>
+        {subtitle && <span className="app-subtitle">{subtitle}</span>}
+      </h1>
+    </div>
+  );
+}
 
 export default function App() {
   return (
@@ -74,7 +97,7 @@ function AppContent() {
     return (
       <div className="app">
         <header className="app-header">
-          <h1>Ledger Dashboard</h1>
+          <AppTitle />
         </header>
         <main className="app-main">
           <ImportScreen onImported={() => setHasJournal(true)} />
@@ -86,20 +109,29 @@ function AppContent() {
   return (
     <div className="app">
       <header className="app-header">
-        <h1>Ledger Dashboard</h1>
-        <nav className="tabs">
-          {TABS.map((t) => (
+        <AppTitle subtitle={TABS.find((t) => t.key === tab)?.label} />
+        {/* Top text tabs on desktop; on phone widths the same <nav> becomes a
+            fixed bottom bar of icons (see .tabs in App.css), so all six fit
+            on one row without horizontal scrolling. */}
+        <nav className="tabs" aria-label="Sections">
+          {TABS.map(({ key, label, Icon }) => (
             <button
-              key={t.key}
-              className={t.key === tab ? 'tab active' : 'tab'}
-              onClick={() => setTab(t.key)}
+              key={key}
+              className={key === tab ? 'tab active' : 'tab'}
+              onClick={() => setTab(key)}
+              aria-label={label}
+              aria-current={key === tab ? 'page' : undefined}
+              title={label}
             >
-              {t.label}
+              <Icon className="tab-icon" />
+              <span className="tab-label">{label}</span>
             </button>
           ))}
         </nav>
-        <BiometricToggle />
-        <ExportBar onUndo={() => setRefreshKey((k) => k + 1)} />
+        <div className="header-actions">
+          <BiometricToggle />
+          <ExportBar onUndo={() => setRefreshKey((k) => k + 1)} />
+        </div>
       </header>
       <main className="app-main">
         {!currencyLoaded && <p className="muted">Loading…</p>}

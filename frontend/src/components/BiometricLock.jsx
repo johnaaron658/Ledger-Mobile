@@ -129,7 +129,8 @@ export function BiometricToggle() {
   return (
     <label className="biometric-toggle" title={error ?? ''}>
       <input type="checkbox" checked={enabled} onChange={toggle} />
-      Lock with biometrics
+      <span className="biometric-text-long">Lock with biometrics</span>
+      <span className="biometric-text-short">Lock</span>
     </label>
   );
 }

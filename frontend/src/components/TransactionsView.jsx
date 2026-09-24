@@ -1,13 +1,33 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useTransition } from 'react';
 import Fuse from 'fuse.js';
 import { api } from '../api';
 import { setCurrencySymbol } from '../format';
 import TransactionForm from './TransactionForm';
+import TruncateStart from './TruncateStart';
+import { PencilIcon, Spinner } from './Icons';
+
+// Rows rendered per "Show more" step. Rendering every transaction at once is
+// the slowest thing this view does on a phone (thousands of <tr>s), and
+// nobody scrolls that far without searching first.
+const PAGE_SIZE = 100;
+
+function splitDate(date) {
+  // "2026/09/23" -> { md: "09/23", year: "2026" }
+  const [year, month, day] = date.split('/');
+  return day ? { md: `${month}/${day}`, year } : { md: date, year: '' };
+}
 
 export default function TransactionsView() {
   const [transactions, setTransactions] = useState([]);
   const [accountNames, setAccountNames] = useState([]);
   const [query, setQuery] = useState('');
+  // The query the (expensive) fuzzy filter actually runs against. Lags
+  // `query` by a short debounce and is applied in a transition, so typing
+  // stays responsive and the spinner has a chance to paint before the
+  // re-filter/re-render work starts.
+  const [appliedQuery, setAppliedQuery] = useState('');
+  const [isFiltering, startFiltering] = useTransition();
+  const [shownCount, setShownCount] = useState(PAGE_SIZE);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [editing, setEditing] = useState(null); // null | 'new' | transaction object
@@ -48,6 +68,19 @@ export default function TransactionsView() {
     load();
   }, []);
 
+  useEffect(() => {
+    if (query === appliedQuery) return;
+    const handle = setTimeout(() => {
+      startFiltering(() => {
+        setAppliedQuery(query);
+        setShownCount(PAGE_SIZE);
+      });
+    }, 250);
+    return () => clearTimeout(handle);
+  }, [query, appliedQuery]);
+
+  const searching = query !== appliedQuery || isFiltering;
+
   const fuse = useMemo(
     () =>
       new Fuse(transactions, {
@@ -69,9 +102,9 @@ export default function TransactionsView() {
   const sortedByDateDesc = (list) => [...list].sort((a, b) => (a.date < b.date ? 1 : -1));
 
   const visible = useMemo(() => {
-    if (!query.trim()) return sortedByDateDesc(transactions);
-    return sortedByDateDesc(fuse.search(query).map((r) => r.item));
-  }, [query, transactions, fuse]);
+    if (!appliedQuery.trim()) return sortedByDateDesc(transactions);
+    return sortedByDateDesc(fuse.search(appliedQuery).map((r) => r.item));
+  }, [appliedQuery, transactions, fuse]);
 
   const handleSave = async (payload) => {
     setSaving(true);
@@ -114,12 +147,19 @@ export default function TransactionsView() {
       {error && <div className="error-banner">{error}</div>}
       {note && <div className="note-banner">{note}</div>}
       <div className="toolbar">
-        <input
-          className="search-input"
-          placeholder="Fuzzy search payee or account…"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-        />
+        <div className="search-wrap">
+          <input
+            className="search-input"
+            placeholder="Fuzzy search payee or account…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+          {searching && (
+            <span className="search-spinner">
+              <Spinner label="Searching" />
+            </span>
+          )}
+        </div>
         <button className="btn btn-primary" onClick={() => setEditing('new')}>
           + Add transaction
         </button>
@@ -133,44 +173,60 @@ export default function TransactionsView() {
           onBlur={saveDefaultCurrency}
         />
       </div>
-      <div className="panel">
-        {loading ? (
-          <p style={{ padding: 16 }}>Loading…</p>
+      <div className={'panel txn-panel' + (loading || searching ? ' is-busy' : '')}>
+        {(loading || searching) && <div className="progress-bar" aria-hidden="true" />}
+        {loading && transactions.length === 0 ? (
+          <p className="muted loading-line" style={{ padding: 16 }}>
+            <Spinner /> Loading transactions…
+          </p>
         ) : (
-          <table className="responsive-table">
+          <table className="txn-table">
+            <colgroup>
+              <col className="txn-col-date" />
+              <col className="txn-col-payee" />
+              <col />
+              <col className="txn-col-edit" />
+            </colgroup>
             <thead>
               <tr>
                 <th>Date</th>
                 <th>Payee</th>
                 <th>Postings</th>
-                <th></th>
+                <th aria-label="Edit"></th>
               </tr>
             </thead>
             <tbody>
-              {visible.map((t) => (
-                <tr key={`${t.file}:${t.beg_line}`} onClick={() => setEditing(t)}>
-                  <td data-label="Date">{t.date}</td>
-                  <td data-label="Payee">{t.payee}</td>
-                  <td data-label="Postings">
-                    <div className="postings-list">
+              {visible.slice(0, shownCount).map((t) => {
+                const { md, year } = splitDate(t.date);
+                return (
+                  <tr key={`${t.file}:${t.beg_line}`}>
+                    <td className="txn-date">
+                      <span>{md}</span>
+                      <span className="txn-year">{year}</span>
+                    </td>
+                    <td className="txn-payee">{t.payee}</td>
+                    <td className="txn-postings">
                       {t.postings.map((p, i) => (
-                        <div className="posting-line" key={i}>
-                          <span>{p.account}</span>
-                          <span className="money">{p.amount_raw}</span>
+                        <div className="txn-posting" key={i}>
+                          <TruncateStart text={p.account} className="txn-account" />
+                          <span className="money txn-amount">{p.amount_raw}</span>
                         </div>
                       ))}
-                    </div>
-                  </td>
-                  <td>
-                    <div className="row-actions">
-                      <button className="btn btn-small" onClick={(e) => { e.stopPropagation(); setEditing(t); }}>
-                        Edit
+                    </td>
+                    <td className="txn-edit">
+                      <button
+                        className="icon-btn"
+                        onClick={() => setEditing(t)}
+                        aria-label={`Edit ${t.payee} on ${t.date}`}
+                        title="Edit"
+                      >
+                        <PencilIcon />
                       </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-              {visible.length === 0 && (
+                    </td>
+                  </tr>
+                );
+              })}
+              {visible.length === 0 && !searching && (
                 <tr>
                   <td colSpan={4} className="muted" style={{ padding: 16 }}>
                     No transactions match.
@@ -179,6 +235,16 @@ export default function TransactionsView() {
               )}
             </tbody>
           </table>
+        )}
+        {visible.length > shownCount && (
+          <div className="show-more">
+            <span className="muted">
+              Showing {shownCount} of {visible.length}
+            </span>
+            <button className="btn btn-small" onClick={() => setShownCount((n) => n + PAGE_SIZE)}>
+              Show more
+            </button>
+          </div>
         )}
       </div>
       {editing && (

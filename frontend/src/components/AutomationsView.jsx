@@ -66,6 +66,7 @@ function emptyForm() {
     end_date: '',
     template: '',
     variable_defaults: {},
+    group_id: '',
   };
 }
 
@@ -79,8 +80,15 @@ function VariableValueInput({ name, value, onChange, accountNames, payees }) {
   return <input type="text" value={value} onChange={(e) => onChange(e.target.value)} />;
 }
 
-function AutomationForm({ initial, accountNames, payees, onSave, onCancel }) {
+function AutomationForm({ initial, groups, accountNames, payees, onSave, onCancel }) {
   const [form, setForm] = useState(initial);
+  const formRef = useRef(null);
+
+  // The form renders above the group list, so editing a card far down the
+  // page would otherwise open it off-screen (especially on a phone).
+  useEffect(() => {
+    formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, []);
   const [defaults, setDefaults] = useState(initial.variable_defaults ?? {});
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
@@ -104,6 +112,7 @@ function AutomationForm({ initial, accountNames, payees, onSave, onCancel }) {
         end_date: form.end_date ? toLedgerDate(form.end_date) : null,
         template: form.template,
         variable_defaults: Object.fromEntries(variableNames.map((n) => [n, defaults[n] ?? ''])),
+        group_id: form.group_id || null,
       });
     } catch (err) {
       setError(err.message);
@@ -113,7 +122,7 @@ function AutomationForm({ initial, accountNames, payees, onSave, onCancel }) {
   };
 
   return (
-    <form className="panel automation-form" onSubmit={submit} style={{ padding: 16, marginBottom: 20 }}>
+    <form ref={formRef} className="panel automation-form" onSubmit={submit} style={{ padding: 16, marginBottom: 20 }}>
       {error && <div className="error-banner">{error}</div>}
       <div className="automation-form-row">
         <div className="form-row">
@@ -126,6 +135,17 @@ function AutomationForm({ initial, accountNames, payees, onSave, onCancel }) {
             {Object.entries(PERIOD_LABELS).map(([k, label]) => (
               <option key={k} value={k}>
                 {label}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="form-row">
+          <label>Group</label>
+          <select value={form.group_id} onChange={set('group_id')}>
+            <option value="">Ungrouped</option>
+            {groups.map((g) => (
+              <option key={g.id} value={g.id}>
+                {g.name}
               </option>
             ))}
           </select>
@@ -353,7 +373,11 @@ function AutomationCard({ automation, onEdit, onDelete, dnd }) {
       {...dnd.dropTargetProps('automation', automation.id, groupKey)}
     >
       <div className="automation-card-header">
-        <span {...dnd.handleProps('automation', automation.id)} title="Drag to reorder or move to another group">
+        <span
+          {...dnd.handleProps('automation', automation.id)}
+          data-dnd-kind="automation"
+          title="Drag to reorder or move to another group"
+        >
           ⠿
         </span>
         <h3>{automation.name}</h3>
@@ -463,7 +487,7 @@ function GroupSection({
           {automations.map((a) => (
             <AutomationCard key={a.id} automation={a} onEdit={onEdit} onDelete={onDelete} dnd={dnd} />
           ))}
-          {automations.length === 0 && <p className="muted">Drag automations here.</p>}
+          {automations.length === 0 && <p className="muted">No automations in this group yet.</p>}
         </div>
       )}
     </div>
@@ -638,11 +662,19 @@ export default function AutomationsView() {
     load();
   }, []);
 
-  const handleSave = async (payload) => {
+  const handleSave = async ({ group_id: groupId, ...payload }) => {
+    let saved;
     if (editing?.id) {
-      await api.updateAutomation(editing.id, payload);
+      saved = await api.updateAutomation(editing.id, payload);
     } else {
-      await api.createAutomation(payload);
+      saved = await api.createAutomation(payload);
+    }
+    // Group membership isn't part of the automation payload — it's moved via
+    // the same endpoint drag-and-drop uses, only when it actually changed so
+    // an unchanged edit keeps the automation's position within its group.
+    const savedId = editing?.id ?? saved?.id;
+    if (savedId && (editing?.group_id ?? null) !== groupId) {
+      await api.moveAutomation(savedId, { groupId });
     }
     setShowForm(false);
     setEditing(null);
@@ -780,6 +812,7 @@ export default function AutomationsView() {
 
       {showForm && (
         <AutomationForm
+          groups={groups}
           accountNames={accountNames}
           payees={payees}
           initial={
@@ -793,6 +826,7 @@ export default function AutomationsView() {
                   end_date: toHtmlDate(editing.end_date ?? ''),
                   template: editing.template,
                   variable_defaults: editing.variable_defaults ?? {},
+                  group_id: editing.group_id ?? '',
                 }
               : emptyForm()
           }

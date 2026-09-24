@@ -6,20 +6,20 @@ import FuzzyCombobox from './FuzzyCombobox';
 
 function SummaryStats({ title, budgeted, spent, over, pct }) {
   return (
-    <div style={{ flex: '1 1 320px', minWidth: 280 }}>
-      <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>{title}</div>
-      <div style={{ display: 'flex', gap: 32, marginBottom: 12 }}>
+    <div className="summary-stats">
+      <div className="muted summary-stats-title">{title}</div>
+      <div className="summary-stats-grid">
         <div>
-          <div className="muted" style={{ fontSize: 12 }}>Budgeted</div>
-          <div style={{ fontSize: 22, fontWeight: 600 }}>{formatMoney(budgeted)}</div>
+          <div className="muted summary-stat-label">Budgeted</div>
+          <div className="summary-stat-value">{formatMoney(budgeted)}</div>
         </div>
         <div>
-          <div className="muted" style={{ fontSize: 12 }}>Spent</div>
-          <div style={{ fontSize: 22, fontWeight: 600 }}>{formatMoney(spent)}</div>
+          <div className="muted summary-stat-label">Spent</div>
+          <div className="summary-stat-value">{formatMoney(spent)}</div>
         </div>
         <div>
-          <div className="muted" style={{ fontSize: 12 }}>{over ? 'Over' : 'Remaining'}</div>
-          <div style={{ fontSize: 22, fontWeight: 600, color: over ? 'var(--danger)' : 'var(--accent)' }}>
+          <div className="muted summary-stat-label">{over ? 'Over' : 'Remaining'}</div>
+          <div className="summary-stat-value" style={{ color: over ? 'var(--danger)' : 'var(--accent)' }}>
             {formatMoney(Math.abs(budgeted - spent))}
           </div>
         </div>
@@ -493,7 +493,7 @@ export default function BudgetsView() {
         <span className="muted" style={{ fontSize: 13 }}>
           Exclude from spent totals (e.g. clearing accounts like a cash wallet):
         </span>
-        <div style={{ width: 260 }}>
+        <div className="exclude-input">
           <FuzzyCombobox
             value={excludeInput}
             onChange={(v) => {
@@ -514,7 +514,7 @@ export default function BudgetsView() {
         </div>
       </div>
 
-      <div className="panel" style={{ padding: 16, marginBottom: 20, display: 'flex', gap: 32, flexWrap: 'wrap' }}>
+      <div className="panel" style={{ padding: 16, marginBottom: 20 }}>
         <SummaryStats title="This month" budgeted={monthTotals.budgeted} spent={monthTotals.spent} over={monthOver} pct={monthPct} />
       </div>
 

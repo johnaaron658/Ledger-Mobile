@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { api } from '../api';
 import TransactionForm from './TransactionForm';
+import { PlusIcon, Spinner } from './Icons';
 
 // Phase 5 §6 item 6: "the new quick-add screen... the single most-used
 // action on a phone finance app" (MOBILE_APP.md §6). A floating action
@@ -57,12 +58,14 @@ export default function QuickAddButton({ onSaved }) {
   return (
     <>
       <button className="quick-add-fab" onClick={openForm} aria-label="Quick add transaction" title="Quick add transaction">
-        +
+        <PlusIcon />
       </button>
       {open && loading && (
         <div className="modal-backdrop">
           <div className="modal">
-            <p className="muted">Loading…</p>
+            <p className="muted loading-line">
+              <Spinner /> Loading…
+            </p>
           </div>
         </div>
       )}
