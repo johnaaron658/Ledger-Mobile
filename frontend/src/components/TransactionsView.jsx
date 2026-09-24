@@ -160,9 +160,6 @@ export default function TransactionsView() {
             </span>
           )}
         </div>
-        <button className="btn btn-primary" onClick={() => setEditing('new')}>
-          + Add transaction
-        </button>
       </div>
       <div className="toolbar">
         <span className="muted" style={{ fontSize: 13 }}>Default currency (auto-filled on amount fields):</span>
