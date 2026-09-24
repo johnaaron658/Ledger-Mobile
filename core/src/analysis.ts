@@ -53,6 +53,8 @@ export interface AnalysisCategory {
   accounts?: string[];
   hidden?: boolean;
   show_balance?: boolean;
+  // Display-only: AnalysisView flips this category's sign after compute.
+  negate?: boolean;
   forecast_enabled?: boolean;
   forecast_lookback?: number;
 }

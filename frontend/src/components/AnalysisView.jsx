@@ -20,6 +20,34 @@ import { labelFor, parseLedger } from '../dateUtils';
 import FuzzyCombobox from './FuzzyCombobox';
 import DateRangeSlider from './DateRangeSlider';
 
+// Sign flipping is a display preference, so it is applied here after
+// compute instead of in the engine. That leaves api.js's compute contract
+// (and the desktop backend) untouched. Forecasts are linear in their input,
+// so negating the projected values equals forecasting the negated series.
+const neg = (v) => (v === 0 ? 0 : -v);
+
+function negateComputed(result, negated) {
+  if (!result || negated.size === 0) return result;
+  return {
+    ...result,
+    categories: result.categories.map((c) => (negated.has(c.name) ? { ...c, total: neg(c.total) } : c)),
+  };
+}
+
+function negateSeries(result, negated) {
+  if (!result || negated.size === 0) return result;
+  const flip = (c) => (negated.has(c.name) ? { ...c, values: c.values.map(neg) } : c);
+  return {
+    ...result,
+    categories: result.categories.map(flip),
+    forecast: result.forecast && { ...result.forecast, categories: (result.forecast.categories ?? []).map(flip) },
+  };
+}
+
+function negatedNames(categories) {
+  return new Set(categories.filter((c) => c.negate).map((c) => c.name));
+}
+
 function toHtmlDate(ledgerDate) {
   return ledgerDate ? ledgerDate.replaceAll('/', '-') : '';
 }
@@ -150,7 +178,7 @@ function AssignSheet({ item, categories, multi, onApply, onCreateCategory, onClo
   );
 }
 
-function CategoryCard({ cat, total, dragOver, onDragOver, onDragLeave, onDrop, onRename, onToggleHidden, onToggleBalance, onToggleForecast, onForecastLookbackChange, onDelete, onUnassign, onChipDragStart, onChipTap }) {
+function CategoryCard({ cat, total, dragOver, onDragOver, onDragLeave, onDrop, onRename, onToggleHidden, onToggleBalance, onToggleNegate, onToggleForecast, onForecastLookbackChange, onDelete, onUnassign, onChipDragStart, onChipTap }) {
   const [expanded, setExpanded] = useState(false);
   const [overflowing, setOverflowing] = useState(false);
   const payeesRef = useRef(null);
@@ -187,6 +215,10 @@ function CategoryCard({ cat, total, dragOver, onDragOver, onDragLeave, onDrop, o
       <label className="category-balance-toggle">
         <input type="checkbox" checked={!!cat.show_balance} onChange={onToggleBalance} />
         Show running total on chart
+      </label>
+      <label className="category-balance-toggle">
+        <input type="checkbox" checked={!!cat.negate} onChange={onToggleNegate} />
+        Flip sign (show 100 as -100)
       </label>
       <label className="category-balance-toggle">
         <input type="checkbox" checked={!!cat.forecast_enabled} onChange={onToggleForecast} />
@@ -358,7 +390,7 @@ export default function AnalysisView() {
           categories: categories.map(({ id, ...rest }) => rest),
           excluded_accounts: excludedAccounts,
         });
-        if (!cancelled) setComputed(result);
+        if (!cancelled) setComputed(negateComputed(result, negatedNames(categories)));
       } catch (e) {
         if (!cancelled) setError(e.message);
       }
@@ -381,7 +413,7 @@ export default function AnalysisView() {
           granularity,
           forecast_end_date: forecastEndDate || null,
         });
-        if (!cancelled) setSeries(result);
+        if (!cancelled) setSeries(negateSeries(result, negatedNames(categories)));
       } catch (e) {
         if (!cancelled) setError(e.message);
       }
@@ -554,6 +586,7 @@ export default function AnalysisView() {
           ...c,
           accounts: c.accounts ?? [],
           show_balance: c.show_balance ?? false,
+          negate: c.negate ?? false,
           forecast_enabled: c.forecast_enabled ?? false,
           forecast_lookback: c.forecast_lookback ?? 6,
           id: `cat-${crypto.randomUUID()}`,
@@ -628,6 +661,7 @@ export default function AnalysisView() {
           accounts,
           hidden: false,
           show_balance: false,
+          negate: false,
           forecast_enabled: false,
           forecast_lookback: 6,
         },
@@ -652,6 +686,7 @@ export default function AnalysisView() {
           accounts: [...(src.accounts ?? [])],
           hidden: false,
           show_balance: src.show_balance ?? false,
+          negate: src.negate ?? false,
           forecast_enabled: src.forecast_enabled ?? false,
           forecast_lookback: src.forecast_lookback ?? 6,
         };
@@ -671,6 +706,10 @@ export default function AnalysisView() {
 
   const toggleCategoryBalance = (id) => {
     setCategories((prev) => prev.map((c) => (c.id === id ? { ...c, show_balance: !c.show_balance } : c)));
+  };
+
+  const toggleCategoryNegate = (id) => {
+    setCategories((prev) => prev.map((c) => (c.id === id ? { ...c, negate: !c.negate } : c)));
   };
 
   const toggleCategoryForecast = (id) => {
@@ -785,11 +824,19 @@ export default function AnalysisView() {
     return new Set(cat?.payees ?? []);
   };
 
+  // Drill-down payee rows follow their category's sign, so they still sum to
+  // the (flipped) category total.
+  const breakdownRows = (categoryName, result) => {
+    const names = payeeNamesForCategory(categoryName, result);
+    const rows = (result.payees ?? []).filter((p) => names.has(p.name));
+    const cat = categories.find((c) => c.name === categoryName);
+    return cat?.negate ? rows.map((p) => ({ ...p, total: neg(p.total) })) : rows;
+  };
+
   const handlePieClick = (data) => {
     const info = data?.payload ?? data;
     if (!info || !computed) return;
-    const names = payeeNamesForCategory(info.name, computed);
-    const rows = (computed.payees ?? []).filter((p) => names.has(p.name));
+    const rows = breakdownRows(info.name, computed);
     setBreakdown({
       source: 'pie',
       title: info.name,
@@ -816,8 +863,7 @@ export default function AnalysisView() {
         excluded_accounts: excludedAccounts,
       });
       if (breakdownRequestRef.current !== requestId) return;
-      const names = payeeNamesForCategory(categoryName, result);
-      const rows = (result.payees ?? []).filter((p) => names.has(p.name));
+      const rows = breakdownRows(categoryName, result);
       setBreakdown({ source: 'line', title: categoryName, subtitle, colorIndex, rows, loading: false });
     } catch (e) {
       if (breakdownRequestRef.current !== requestId) return;
@@ -1212,6 +1258,7 @@ export default function AnalysisView() {
               onRename={(newName) => renameCategory(cat.id, newName)}
               onToggleHidden={() => toggleCategoryHidden(cat.id)}
               onToggleBalance={() => toggleCategoryBalance(cat.id)}
+              onToggleNegate={() => toggleCategoryNegate(cat.id)}
               onToggleForecast={() => toggleCategoryForecast(cat.id)}
               onForecastLookbackChange={(n) => setCategoryForecastLookback(cat.id, n)}
               onDelete={() => deleteCategory(cat.id)}
