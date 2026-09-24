@@ -16,6 +16,49 @@ function normalizeAmount(raw, defaultCurrency) {
   return trimmed;
 }
 
+const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const NUMBER_INPUT_RE = /^-?[\d,]*\.?\d*$/;
+
+// Splits a raw amount into the fixed currency prefix and the editable number,
+// so the field can use the numeric keyboard on phones. Anything else (another
+// commodity, a price annotation, `-₱50`) stays a plain text field so editing
+// an existing transaction never loses what ledger wrote.
+function splitAmount(raw, currency) {
+  if (!raw || raw === currency) return { number: '' };
+  if (!currency) return NUMBER_INPUT_RE.test(raw) ? { number: raw } : null;
+  const m = raw.match(new RegExp(`^${escapeRe(currency)}\\s*(-?[\\d,]*\\.?\\d*)$`));
+  return m ? { number: m[1] } : null;
+}
+
+function AmountInput({ value, onChange, currency }) {
+  const split = splitAmount(value, currency ?? '');
+  const numeric = split !== null;
+  const text = numeric ? split.number : value;
+  const showPrefix = numeric && !!currency && text !== '';
+
+  const handleChange = (e) => {
+    const v = e.target.value;
+    if (v === '') onChange('');
+    // Typed digits keep the currency. Anything else (a physical keyboard on
+    // desktop) is taken as-is and the field drops back to free text.
+    else if (NUMBER_INPUT_RE.test(v)) onChange(`${currency ?? ''}${v}`);
+    else onChange(v);
+  };
+
+  // One <input> in both modes, so switching mode mid-typing keeps focus.
+  return (
+    <div className="amount-input">
+      {showPrefix && <span className="amount-input-prefix">{currency}</span>}
+      <input
+        placeholder="Amount (blank = balancing)"
+        inputMode={numeric ? 'decimal' : 'text'}
+        value={text}
+        onChange={handleChange}
+      />
+    </div>
+  );
+}
+
 export default function TransactionForm({
   initial,
   initialDate,
@@ -82,10 +125,10 @@ export default function TransactionForm({
                   placeholder="Account"
                   required
                 />
-                <input
-                  placeholder="Amount (blank = balancing)"
+                <AmountInput
                   value={p.amount_raw}
-                  onChange={(e) => updatePosting(idx, 'amount_raw', e.target.value)}
+                  onChange={(v) => updatePosting(idx, 'amount_raw', v)}
+                  currency={defaultCurrency}
                 />
                 <button
                   type="button"

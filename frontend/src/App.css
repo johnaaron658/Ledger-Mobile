@@ -446,6 +446,37 @@ tbody tr:hover {
   background: var(--bg);
 }
 
+/* The wrapper draws the input's box so the currency prefix sits inside it
+   without being part of the editable value. */
+.amount-input {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+}
+
+.amount-input:focus-within {
+  outline: 2px auto -webkit-focus-ring-color;
+}
+
+.amount-input-prefix {
+  padding-left: 10px;
+  color: var(--text-muted);
+  user-select: none;
+}
+
+.form-row .amount-input input {
+  border: none;
+  background: transparent;
+  outline: none;
+}
+
+.form-row .amount-input-prefix + input {
+  padding-left: 4px;
+}
+
 .posting-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 140px auto;
@@ -475,6 +506,11 @@ tbody tr:hover {
   border-radius: 6px;
   box-shadow: 0 8px 20px rgba(0, 0, 0, 0.15);
   z-index: 60;
+}
+
+.combobox-dropdown.up {
+  top: auto;
+  bottom: calc(100% + 4px);
 }
 
 .combobox-option {
