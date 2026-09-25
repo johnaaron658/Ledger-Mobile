@@ -135,29 +135,6 @@ export async function exportConfigBundle(storage: Storage): Promise<Uint8Array> 
   return zipSync(entries);
 }
 
-const JOURNAL_ENTRY_NAME = "journal.ledger";
-
-/** Full backup bundle (§6 item 3 of the implementation plan): the journal
- * plus the same four config files exportConfigBundle produces, all in one
- * zip, for the mobile app's one-tap "Export" action (MOBILE_APP.md §9.2).
- * Kept as a distinct function rather than a mode flag on
- * exportConfigBundle: the config-only bundle (§3.2) is also independently
- * useful (e.g. restoring settings without touching the journal), and their
- * callers differ — the desktop-facing "config backup" flow in ImportScreen
- * vs. this one, mobile-only, always-both flow. */
-export async function exportFullBundle(storage: Storage): Promise<Uint8Array> {
-  const journalText = (await storage.readJournal()) ?? "";
-  const entries: Record<string, Uint8Array> = {
-    [MANIFEST_NAME]: strToU8(JSON.stringify({ schema_version: CONFIG_SCHEMA_VERSION }, null, 2)),
-    [JOURNAL_ENTRY_NAME]: strToU8(journalText),
-  };
-  for (const file of CONFIG_FILES) {
-    const value = await storage.readConfig(file);
-    if (value !== null) entries[`${file}.json`] = strToU8(JSON.stringify(value, null, 2));
-  }
-  return zipSync(entries);
-}
-
 function mergeById<T extends { id: string }>(current: T[], incoming: T[]): T[] {
   const merged = new Map(current.map((item) => [item.id, item]));
   for (const item of incoming) merged.set(item.id, item);

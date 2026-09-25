@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api, isLocalEngine } from '../api';
 import { shareBytes } from '../capacitorAdapter';
 
@@ -48,6 +48,8 @@ export default function ExportBar({ onUndo }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const [note, setNote] = useState(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef(null);
 
   const refresh = async () => {
     try {
@@ -64,17 +66,36 @@ export default function ExportBar({ onUndo }) {
     refresh();
   }, []);
 
+  useEffect(() => {
+    if (!menuOpen) return;
+    const close = (e) => {
+      if (!menuRef.current?.contains(e.target)) setMenuOpen(false);
+    };
+    document.addEventListener('pointerdown', close);
+    return () => document.removeEventListener('pointerdown', close);
+  }, [menuOpen]);
+
   if (!isLocalEngine) return null;
 
-  const doExport = async () => {
+  // Two separate files rather than one combined zip, so each is exactly what
+  // the matching ImportScreen step takes on a fresh install: the .ledger for
+  // "Choose .ledger file", the settings .zip for the optional config step.
+  const doExport = async (kind) => {
+    setMenuOpen(false);
     setBusy(true);
     setError(null);
     setNote(null);
     try {
-      const bytes = await api.exportBundle('manual export');
       const stamp = new Date().toISOString().slice(0, 10);
-      await shareBytes(bytes, `ledger-backup-${stamp}.zip`);
-      setNote('Exported.');
+      if (kind === 'journal') {
+        const bytes = await api.exportJournal('manual export');
+        await shareBytes(bytes, `ledger-${stamp}.ledger`, 'text/plain');
+        setNote('Journal exported.');
+      } else {
+        const bytes = await api.exportConfig();
+        await shareBytes(bytes, `ledger-settings-${stamp}.zip`);
+        setNote('Settings exported.');
+      }
       await refresh();
     } catch (e) {
       setError(e.message);
@@ -112,9 +133,29 @@ export default function ExportBar({ onUndo }) {
           Undo
         </button>
       )}
-      <button className="btn btn-small btn-primary" onClick={doExport} disabled={busy}>
-        {busy ? 'Exporting…' : 'Export'}
-      </button>
+      <span className="export-menu-wrap" ref={menuRef}>
+        <button
+          className="btn btn-small btn-primary"
+          onClick={() => setMenuOpen((o) => !o)}
+          disabled={busy}
+          aria-haspopup="menu"
+          aria-expanded={menuOpen}
+        >
+          {busy ? 'Exporting…' : 'Export ▾'}
+        </button>
+        {menuOpen && (
+          <div className="export-menu" role="menu">
+            <button className="export-menu-item" role="menuitem" onClick={() => doExport('journal')}>
+              <span>Journal</span>
+              <span className="export-menu-hint">.ledger — your transactions</span>
+            </button>
+            <button className="export-menu-item" role="menuitem" onClick={() => doExport('config')}>
+              <span>Settings</span>
+              <span className="export-menu-hint">.zip — analyses, automations, budgets, currency</span>
+            </button>
+          </div>
+        )}
+      </span>
     </div>
   );
 }

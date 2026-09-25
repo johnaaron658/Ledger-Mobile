@@ -31,7 +31,6 @@ import {
   type JournalImportResult,
   emptyJournalText,
   exportConfigBundle,
-  exportFullBundle,
   importConfig,
   importJournal,
   previewJournalImport,
@@ -138,8 +137,14 @@ export function createLocalApi(storage: Storage, journalPath = "journal.ledger")
     // contract (the desktop has no equivalent — no export, no undo beyond
     // its own git history, no "since last export" concept), same rationale
     // as the §5.4 import methods above.
-    async exportBundle(label = "export"): Promise<Uint8Array> {
-      const bytes = await exportFullBundle(storage);
+    //
+    // The journal and the config bundle export separately (the config zip
+    // is exportConfig above), so each file is exactly what the matching
+    // ImportScreen step accepts on a fresh install. Only the journal export
+    // is recorded: it's the backup the staleness nudge counts writes
+    // against, and config changes never bump writesSinceExport anyway.
+    async exportJournal(label = "export"): Promise<Uint8Array> {
+      const bytes = new TextEncoder().encode((await storage.readJournal()) ?? "");
       await recordExport(storage, bytes, label);
       return bytes;
     },

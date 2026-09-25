@@ -129,7 +129,7 @@ export async function getExportNudge(storage: Storage, now: Date = new Date()): 
 
 /** Records a completed export (§6 item 4, §9.2's "keep the last N exports in
  * app storage too" mitigation): retains the exported bytes (typically the
- * whole journal+config zip from exportBundle in api.ts) up to
+ * journal text from exportJournal in api.ts) up to
  * MAX_RETAINED_EXPORTS, evicting the oldest, and resets the staleness
  * nudge. Called once the export artifact is built and handed to the share
  * sheet/picker, regardless of whether the user actually completes that flow
