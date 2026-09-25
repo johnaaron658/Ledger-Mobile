@@ -44,6 +44,37 @@ function negateSeries(result, negated) {
   };
 }
 
+// Last-opened analysis, so the tab reopens where the user left it instead of
+// on a blank "New Analysis". Per-device UI state, hence localStorage rather
+// than the api.js contract.
+const LAST_ANALYSIS_KEY = 'analysis.lastId';
+
+function loadLastAnalysisId() {
+  try {
+    return localStorage.getItem(LAST_ANALYSIS_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function saveLastAnalysisId(id) {
+  try {
+    if (id) localStorage.setItem(LAST_ANALYSIS_KEY, id);
+    else localStorage.removeItem(LAST_ANALYSIS_KEY);
+  } catch {
+    // ignore (e.g. private browsing)
+  }
+}
+
+// Recharts flips the tooltip left near the right edge but only clamps it to
+// the plot's left edge, and its default content is nowrap. On a phone a
+// tooltip listing several categories is wider than the space left of the
+// point, so it ran off the right side and was clipped. Capping the width to
+// the plot area (minus the 64px Y axis and 16px margin) and letting rows
+// wrap keeps it on screen; desktop charts are wide enough to never hit it.
+const TOOLTIP_WRAPPER_STYLE = { maxWidth: 'calc(100% - 80px)', zIndex: 10 };
+const TOOLTIP_CONTENT_STYLE = { whiteSpace: 'normal', overflowWrap: 'anywhere' };
+
 function negatedNames(categories) {
   return new Set(categories.filter((c) => c.negate).map((c) => c.name));
 }
@@ -324,6 +355,37 @@ export default function AnalysisView() {
   const breakdownRequestRef = useRef(0);
   const isTouch = useCoarsePointer();
 
+  async function loadAnalysis(id) {
+    setError(null);
+    try {
+      const a = await api.getAnalysis(id);
+      setCurrentId(a.id);
+      setName(a.name);
+      setStartDate(a.start_date || monthStartLedger());
+      setEndDate(a.end_date || todayLedger());
+      setCategories(
+        a.categories.map((c) => ({
+          ...c,
+          accounts: c.accounts ?? [],
+          show_balance: c.show_balance ?? false,
+          negate: c.negate ?? false,
+          forecast_enabled: c.forecast_enabled ?? false,
+          forecast_lookback: c.forecast_lookback ?? 6,
+          id: `cat-${crypto.randomUUID()}`,
+        }))
+      );
+      setIncludeUncategorized(a.include_uncategorized ?? true);
+      setAllowMultiCategory(a.allow_multi_category ?? false);
+      setExcludedAccounts(a.excluded_accounts ?? []);
+      setExcludeInput('');
+      setForecastEndDate(a.forecast_end_date ?? '');
+      setSelectedPayees(new Set());
+      setSelectedAccounts(new Set());
+    } catch (e) {
+      setError(e.message);
+    }
+  }
+
   useEffect(() => {
     (async () => {
       try {
@@ -340,6 +402,8 @@ export default function AnalysisView() {
           const maxTxnDate = txns.reduce((max, t) => (t.date > max ? t.date : max), txns[0].date);
           setDateBounds({ min: minTxnDate, max: maxTxnDate > today ? maxTxnDate : today });
         }
+        const lastId = loadLastAnalysisId();
+        if (lastId && list.some((a) => String(a.id) === lastId)) await loadAnalysis(lastId);
       } catch (e) {
         setError(e.message);
       } finally {
@@ -370,6 +434,12 @@ export default function AnalysisView() {
       cancelled = true;
     };
   }, [otherAnalysisId]);
+
+  // Gated on !loading so the initial null currentId doesn't erase the stored
+  // id before the mount effect has had a chance to restore it.
+  useEffect(() => {
+    if (!loading) saveLastAnalysisId(currentId);
+  }, [currentId, loading]);
 
   const addExcludedAccount = (account) => {
     setExcludedAccounts((prev) => (prev.includes(account) ? prev : [...prev, account]));
@@ -568,40 +638,10 @@ export default function AnalysisView() {
     setSelectedAccounts(new Set());
   };
 
-  const handleSelectChange = async (e) => {
+  const handleSelectChange = (e) => {
     const id = e.target.value;
-    if (!id) {
-      handleNew();
-      return;
-    }
-    setError(null);
-    try {
-      const a = await api.getAnalysis(id);
-      setCurrentId(a.id);
-      setName(a.name);
-      setStartDate(a.start_date || monthStartLedger());
-      setEndDate(a.end_date || todayLedger());
-      setCategories(
-        a.categories.map((c) => ({
-          ...c,
-          accounts: c.accounts ?? [],
-          show_balance: c.show_balance ?? false,
-          negate: c.negate ?? false,
-          forecast_enabled: c.forecast_enabled ?? false,
-          forecast_lookback: c.forecast_lookback ?? 6,
-          id: `cat-${crypto.randomUUID()}`,
-        }))
-      );
-      setIncludeUncategorized(a.include_uncategorized ?? true);
-      setAllowMultiCategory(a.allow_multi_category ?? false);
-      setExcludedAccounts(a.excluded_accounts ?? []);
-      setExcludeInput('');
-      setForecastEndDate(a.forecast_end_date ?? '');
-      setSelectedPayees(new Set());
-      setSelectedAccounts(new Set());
-    } catch (e) {
-      setError(e.message);
-    }
+    if (id) loadAnalysis(id);
+    else handleNew();
   };
 
   const handleSave = async () => {
@@ -1029,7 +1069,11 @@ export default function AnalysisView() {
                 minTickGap={24}
               />
               <YAxis tick={{ fontSize: 12, fill: 'var(--text-muted)' }} tickFormatter={formatMoneyCompact} width={64} />
-              <Tooltip formatter={(v) => formatMoney(v)} />
+              <Tooltip
+                formatter={(v) => formatMoney(v)}
+                wrapperStyle={TOOLTIP_WRAPPER_STYLE}
+                contentStyle={TOOLTIP_CONTENT_STYLE}
+              />
               <Legend />
               {forecastBoundaryLabel && (
                 <ReferenceLine
