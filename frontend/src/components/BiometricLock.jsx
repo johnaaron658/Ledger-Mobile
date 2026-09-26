@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api, isLocalEngine } from '../api';
 import { authenticateBiometric, isBiometricLockAvailable, isNativePlatform, onAppStateChange } from '../capacitorAdapter';
 
@@ -15,6 +15,12 @@ import { authenticateBiometric, isBiometricLockAvailable, isNativePlatform, onAp
 
 const LOCK_ENABLED_KEY = 'biometric_lock_enabled';
 
+// A quick hop to another app (copying an amount, checking a message) and
+// straight back shouldn't demand a fresh unlock mid-entry; only an absence
+// longer than this re-locks. Short enough that a phone left unattended
+// still locks well before anyone else could pick it up and browse.
+const RELOCK_GRACE_MS = 30_000;
+
 export default function BiometricLock({ children }) {
   // null = still deciding (checking availability + the saved toggle);
   // false = no lock configured/available, render the app; true = locked,
@@ -23,6 +29,12 @@ export default function BiometricLock({ children }) {
   const [enabled, setEnabled] = useState(false);
   const [authenticating, setAuthenticating] = useState(false);
   const [error, setError] = useState(null);
+  // Once unlocked, the app stays mounted (just hidden) across re-locks, so
+  // its in-memory state — current tab, a half-typed Quick add posting —
+  // survives backgrounding. Before the first unlock nothing is mounted at
+  // all, so a locked launch never loads the journal.
+  const [unlockedOnce, setUnlockedOnce] = useState(false);
+  const backgroundedAt = useRef(null);
 
   useEffect(() => {
     if (!isLocalEngine || !isNativePlatform()) {
@@ -30,6 +42,7 @@ export default function BiometricLock({ children }) {
       // web fallback reports unavailable anyway — skip straight to unlocked
       // rather than making every `npm run dev` session pass through here.
       setLocked(false);
+      setUnlockedOnce(true);
       return;
     }
     (async () => {
@@ -40,16 +53,28 @@ export default function BiometricLock({ children }) {
       const wantsLock = isAvailable && !!savedEnabled;
       setEnabled(wantsLock);
       setLocked(wantsLock);
+      if (!wantsLock) setUnlockedOnce(true);
     })();
   }, []);
 
   // Re-lock on backgrounding (§6 item 7): a lock that only engages at app
   // launch and never again would leave the app unlocked for the rest of the
   // OS session once opened once — the point of a lock on a finance app is
-  // that picking the phone up mid-session still requires it.
+  // that picking the phone up mid-session still requires it. Timed on
+  // resume against RELOCK_GRACE_MS rather than locking the instant it
+  // backgrounds.
   useEffect(() => {
     if (!enabled) return undefined;
-    return onAppStateChange({ onBackground: () => setLocked(true) });
+    return onAppStateChange({
+      onBackground: () => {
+        backgroundedAt.current = Date.now();
+      },
+      onForeground: () => {
+        const since = backgroundedAt.current;
+        backgroundedAt.current = null;
+        if (since !== null && Date.now() - since > RELOCK_GRACE_MS) setLocked(true);
+      },
+    });
   }, [enabled]);
 
   const unlock = async () => {
@@ -58,6 +83,7 @@ export default function BiometricLock({ children }) {
     try {
       await authenticateBiometric('Unlock Ledger Dashboard');
       setLocked(false);
+      setUnlockedOnce(true);
     } catch (e) {
       setError(e?.message || 'Authentication failed or was canceled.');
     } finally {
@@ -66,15 +92,30 @@ export default function BiometricLock({ children }) {
   };
 
   if (locked === null) return null; // avoid a flash of unlocked content while deciding
-  if (!locked) return children;
 
+  // The wrapper element must stay the same across lock/unlock (only its
+  // `hidden` flips) or React would remount the app and drop its state.
+  // `display: contents` keeps it out of the layout while unlocked.
+  return (
+    <>
+      {unlockedOnce && (
+        <div hidden={!!locked} style={locked ? undefined : { display: 'contents' }}>
+          {children}
+        </div>
+      )}
+      {locked && <LockScreen error={error} authenticating={authenticating} onUnlock={unlock} />}
+    </>
+  );
+}
+
+function LockScreen({ error, authenticating, onUnlock }) {
   return (
     <div className="app">
       <div className="biometric-lock-screen">
         <h2>Locked</h2>
         <p className="muted">Ledger Dashboard is locked with biometric authentication.</p>
         {error && <div className="error-banner">{error}</div>}
-        <button className="btn btn-primary" onClick={unlock} disabled={authenticating}>
+        <button className="btn btn-primary" onClick={onUnlock} disabled={authenticating}>
           {authenticating ? 'Waiting…' : 'Unlock'}
         </button>
       </div>
