@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import FuzzyCombobox from './FuzzyCombobox';
+import { formatLedger } from '../dateUtils';
 
 const BARE_NUMBER_RE = /^-?[\d,]+\.?\d*$/;
 
@@ -74,7 +75,7 @@ export default function TransactionForm({
   saving,
   error,
 }) {
-  const [date, setDate] = useState(initial?.date ?? initialDate ?? new Date().toISOString().slice(0, 10).replace(/-/g, '/'));
+  const [date, setDate] = useState(initial?.date ?? initialDate ?? formatLedger(new Date()));
   const [payee, setPayee] = useState(initial?.payee ?? initialPayee ?? '');
   const [postings, setPostings] = useState(
     initial?.postings?.length

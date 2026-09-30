@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api';
+import { todayHtml } from '../dateUtils';
 import FuzzyCombobox from './FuzzyCombobox';
 
 const PERIOD_LABELS = {
@@ -49,9 +50,6 @@ function toHtmlDate(ledgerDate) {
 }
 function toLedgerDate(htmlDate) {
   return htmlDate ? htmlDate.replaceAll('-', '/') : '';
-}
-function todayHtml() {
-  return new Date().toISOString().slice(0, 10);
 }
 
 const TEMPLATE_PLACEHOLDER = '$[date] $[payee]\n    Expenses:Rent    $[amount]\n    $[account]';

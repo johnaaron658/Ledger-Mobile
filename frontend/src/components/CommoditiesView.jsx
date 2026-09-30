@@ -1,9 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api';
+import { todayHtml } from '../dateUtils';
 
-function todayHtml() {
-  return new Date().toISOString().slice(0, 10);
-}
 function toLedgerDate(htmlDate) {
   return htmlDate ? htmlDate.replaceAll('-', '/') : '';
 }

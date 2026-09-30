@@ -49,6 +49,15 @@ import {
   undoLastWrite,
 } from "./mobileState.js";
 
+/** The device's local calendar date, as the UTC-midnight Date the engine
+ * uses for every journal date. Passing a raw `new Date()` instead makes
+ * "today" the UTC date, which east of Greenwich lags the local one after
+ * local midnight (in UTC+8, until 8 AM): automations due today wouldn't
+ * fire and budgets would still be in last month on the 1st. */
+function localToday(now: Date = new Date()): Date {
+  return new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
+}
+
 async function loadJournal(storage: Storage): Promise<{ text: string; journal: Journal; index: PriceIndex }> {
   const text = (await storage.readJournal()) ?? "";
   const { journal, result } = parseAndValidate(text);
@@ -200,7 +209,7 @@ export function createLocalApi(storage: Storage, journalPath = "journal.ledger")
     async getAccounts() {
       const { journal, index } = await loadJournal(storage);
       const target = (await getSettings(storage)).main_commodity;
-      return buildAccountTree(journal, index, target, new Date());
+      return buildAccountTree(journal, index, target, localToday());
     },
     async getAccountNames() {
       const { journal } = await loadJournal(storage);
@@ -216,14 +225,14 @@ export function createLocalApi(storage: Storage, journalPath = "journal.ledger")
       const { text, journal, index } = await loadJournal(storage);
       const target = (await getSettings(storage)).main_commodity;
       const settings = await budgets.getBudgetSettings(storage);
-      return budgets.listBudgets(text, journal, index, target, new Date(), settings.excluded_accounts);
+      return budgets.listBudgets(text, journal, index, target, localToday(), settings.excluded_accounts);
     },
     async addBudgetPeriod(account: string, period_text: string, amount_raw: string) {
-      const result = await budgets.addBudgetPeriod(storage, new Date(), account, period_text, amount_raw);
+      const result = await budgets.addBudgetPeriod(storage, localToday(), account, period_text, amount_raw);
       return { ok: true, ...result };
     },
     async createBudget(account: string, period_text: string, amount_raw: string) {
-      const result = await budgets.createBudget(storage, new Date(), account, period_text, amount_raw);
+      const result = await budgets.createBudget(storage, localToday(), account, period_text, amount_raw);
       return { ok: true, ...result };
     },
     async getBudgetSettings() {
@@ -317,14 +326,14 @@ export function createLocalApi(storage: Storage, journalPath = "journal.ledger")
     },
 
     async getAutomations() {
-      return automations.listAutomations(storage, new Date());
+      return automations.listAutomations(storage, localToday());
     },
     async createAutomation(automation: AutomationPayload) {
-      return automations.createAutomation(storage, new Date(), automation);
+      return automations.createAutomation(storage, localToday(), automation);
     },
     async updateAutomation(id: string, automation: AutomationPayload) {
       try {
-        return await automations.updateAutomation(storage, new Date(), id, automation);
+        return await automations.updateAutomation(storage, localToday(), id, automation);
       } catch (e) {
         if (e instanceof automations.AutomationNotFound) notFound("Automation not found");
         throw e;
@@ -340,7 +349,7 @@ export function createLocalApi(storage: Storage, journalPath = "journal.ledger")
       return { ok: true };
     },
     async getPendingAutomations() {
-      return automations.listPending(storage, new Date());
+      return automations.listPending(storage, localToday());
     },
     async previewPendingAutomation(id: string, variables?: Record<string, string> | null) {
       try {

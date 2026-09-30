@@ -5,6 +5,12 @@ export function parseLedger(d) {
 export function formatLedger(date) {
   return `${date.getFullYear()}/${String(date.getMonth() + 1).padStart(2, '0')}/${String(date.getDate()).padStart(2, '0')}`;
 }
+// Local date as YYYY-MM-DD for <input type="date">. Not
+// toISOString().slice(0, 10): that's the UTC date, which lags the local one
+// after local midnight east of Greenwich (until 8 AM in UTC+8).
+export function todayHtml() {
+  return formatLedger(new Date()).replaceAll('/', '-');
+}
 export function addDays(date, n) {
   const d = new Date(date);
   d.setDate(d.getDate() + n);

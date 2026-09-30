@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import Fuse from 'fuse.js';
 import { api } from '../api';
+import { todayHtml } from '../dateUtils';
 import { formatMoney } from '../format';
 import FuzzyCombobox from './FuzzyCombobox';
 
@@ -50,9 +51,6 @@ const CUSTOM_UNIT_LABELS = {
 
 function toLedgerDate(htmlDate) {
   return htmlDate ? htmlDate.replaceAll('-', '/') : '';
-}
-function todayHtml() {
-  return new Date().toISOString().slice(0, 10);
 }
 
 function periodPhrase(period, customInterval, customUnit) {

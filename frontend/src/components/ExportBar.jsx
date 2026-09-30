@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { api, isLocalEngine } from '../api';
 import { shareBytes } from '../capacitorAdapter';
+import { todayHtml } from '../dateUtils';
 
 // Phase 5 §6 items 3+5 / MOBILE_APP.md §9.2: one-tap export from the main
 // screen, plus a non-modal staleness nudge ("N writes / D days since your
@@ -86,7 +87,7 @@ export default function ExportBar({ onUndo }) {
     setError(null);
     setNote(null);
     try {
-      const stamp = new Date().toISOString().slice(0, 10);
+      const stamp = todayHtml();
       if (kind === 'journal') {
         const bytes = await api.exportJournal('manual export');
         await shareBytes(bytes, `ledger-${stamp}.ledger`, 'text/plain');
