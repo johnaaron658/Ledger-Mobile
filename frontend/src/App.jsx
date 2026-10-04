@@ -60,6 +60,8 @@ function AppContent() {
   // it changed. Cheap and correct: every view already loads its own data
   // in a mount-time effect (see e.g. TransactionsView's `load()`).
   const [refreshKey, setRefreshKey] = useState(0);
+  // {date, payee} of the last Quick add, for TransactionsView to reveal.
+  const [quickAdded, setQuickAdded] = useState(null);
   // Load the display currency before any view renders money, so nothing flashes the
   // default symbol first. Views re-read it via format.js, so no prop threading.
   const [currencyLoaded, setCurrencyLoaded] = useState(false);
@@ -135,14 +137,21 @@ function AppContent() {
       </header>
       <main className="app-main">
         {!currencyLoaded && <p className="muted">Loading…</p>}
-        {currencyLoaded && tab === 'transactions' && <TransactionsView key={refreshKey} />}
+        {currencyLoaded && tab === 'transactions' && <TransactionsView key={refreshKey} revealAdded={quickAdded} onRevealed={() => setQuickAdded(null)} />}
         {currencyLoaded && tab === 'budgets' && <BudgetsView key={refreshKey} />}
         {currencyLoaded && tab === 'accounts' && <AccountsView key={refreshKey} />}
         {currencyLoaded && tab === 'analysis' && <AnalysisView key={refreshKey} />}
         {currencyLoaded && tab === 'automations' && <AutomationsView key={refreshKey} />}
         {currencyLoaded && tab === 'commodities' && <CommoditiesView key={refreshKey} />}
       </main>
-      {currencyLoaded && <QuickAddButton onSaved={() => setRefreshKey((k) => k + 1)} />}
+      {currencyLoaded && (
+        <QuickAddButton
+          onSaved={(payload) => {
+            setQuickAdded({ date: payload.date, payee: payload.payee });
+            setRefreshKey((k) => k + 1);
+          }}
+        />
+      )}
     </div>
   );
 }

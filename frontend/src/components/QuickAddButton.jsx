@@ -47,7 +47,7 @@ export default function QuickAddButton({ onSaved }) {
     try {
       await api.addTransaction(payload);
       setOpen(false);
-      onSaved?.();
+      onSaved?.(payload);
     } catch (e) {
       setError(e.message);
     } finally {

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useTransition } from 'react';
+import { useEffect, useMemo, useRef, useState, useTransition } from 'react';
 import Fuse from 'fuse.js';
 import { api } from '../api';
 import { setCurrencySymbol } from '../format';
@@ -17,7 +17,22 @@ function splitDate(date) {
   return day ? { md: `${month}/${day}`, year } : { md: date, year: '' };
 }
 
-export default function TransactionsView() {
+const txnKey = (t) => `${t.file}:${t.beg_line}`;
+
+// Key of the transaction an add of {date, payee} just wrote. Adds append to
+// the end of the file, so among same-date/payee matches it's the one with
+// the highest beg_line.
+function findAddedKey(txns, { date, payee }) {
+  let found = null;
+  for (const t of txns) {
+    if (t.date === date && t.payee === payee && (!found || t.beg_line > found.beg_line)) found = t;
+  }
+  return found && txnKey(found);
+}
+
+// `revealAdded` ({date, payee}) is set by App after a Quick add so the new
+// transaction is shown even when its date sorts it past the first page.
+export default function TransactionsView({ revealAdded, onRevealed }) {
   const [transactions, setTransactions] = useState([]);
   const [accountNames, setAccountNames] = useState([]);
   const [query, setQuery] = useState('');
@@ -36,6 +51,11 @@ export default function TransactionsView() {
   const [note, setNote] = useState(null);
   const [defaultCurrency, setDefaultCurrency] = useState('');
   const [currencyInput, setCurrencyInput] = useState('');
+  // Row to page to, scroll to and flash after a save. A backdated add sorts
+  // below the first PAGE_SIZE rows, and without this it looked like the save
+  // had silently failed.
+  const [revealKey, setRevealKey] = useState(null);
+  const revealRef = useRef(null);
 
   const load = async () => {
     setLoading(true);
@@ -50,6 +70,7 @@ export default function TransactionsView() {
       setAccountNames(names);
       setDefaultCurrency(settings.default_currency);
       setCurrencyInput(settings.default_currency);
+      return txns;
     } catch (e) {
       setError(e.message);
     } finally {
@@ -65,7 +86,13 @@ export default function TransactionsView() {
   };
 
   useEffect(() => {
-    load();
+    load().then((txns) => {
+      if (!txns || !revealAdded) return;
+      setRevealKey(findAddedKey(txns, revealAdded));
+      onRevealed?.();
+    });
+    // Mount-only: App remounts this view (via `key`) after every Quick add.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -106,17 +133,34 @@ export default function TransactionsView() {
     return sortedByDateDesc(fuse.search(appliedQuery).map((r) => r.item));
   }, [appliedQuery, transactions, fuse]);
 
+  // Grow the page until the revealed row is rendered, then scroll to it.
+  useEffect(() => {
+    if (!revealKey) return;
+    const idx = visible.findIndex((t) => txnKey(t) === revealKey);
+    if (idx < 0) return;
+    if (idx >= shownCount) {
+      setShownCount(Math.ceil((idx + 1) / PAGE_SIZE) * PAGE_SIZE);
+      return;
+    }
+    revealRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    const handle = setTimeout(() => setRevealKey(null), 2500);
+    return () => clearTimeout(handle);
+  }, [revealKey, visible, shownCount]);
+
   const handleSave = async (payload) => {
     setSaving(true);
     setFormError(null);
     try {
-      if (editing && editing !== 'new') {
+      const isEdit = editing && editing !== 'new';
+      if (isEdit) {
         await api.editTransaction({ ...payload, file: editing.file, beg_line: editing.beg_line, end_line: editing.end_line });
       } else {
         await api.addTransaction(payload);
       }
       setEditing(null);
-      await load();
+      const txns = await load();
+      // An edit replaces the block in place, so it keeps its beg_line.
+      if (txns) setRevealKey(isEdit ? txnKey(editing) : findAddedKey(txns, payload));
       setNote('Saved.');
     } catch (e) {
       setFormError(e.message);
@@ -195,8 +239,10 @@ export default function TransactionsView() {
             <tbody>
               {visible.slice(0, shownCount).map((t) => {
                 const { md, year } = splitDate(t.date);
+                const key = txnKey(t);
+                const revealed = key === revealKey;
                 return (
-                  <tr key={`${t.file}:${t.beg_line}`}>
+                  <tr key={key} ref={revealed ? revealRef : undefined} className={revealed ? 'txn-revealed' : undefined}>
                     <td className="txn-date">
                       <span>{md}</span>
                       <span className="txn-year">{year}</span>

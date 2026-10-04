@@ -1663,6 +1663,19 @@ tbody tr:hover {
   width: 52px;
 }
 
+.txn-table tr.txn-revealed td {
+  animation: txn-reveal 2.5s ease-out;
+}
+
+@keyframes txn-reveal {
+  from {
+    background: var(--accent-bg);
+  }
+  to {
+    background: transparent;
+  }
+}
+
 .txn-table td {
   vertical-align: top;
 }
