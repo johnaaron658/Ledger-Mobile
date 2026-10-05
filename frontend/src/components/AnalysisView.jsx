@@ -118,6 +118,30 @@ function ClickableDot({ cx, cy, stroke, payload, dataKey, onPointClick, r = 4 })
   );
 }
 
+/** Open/closed state for a collapsible pool panel, remembered across visits
+ * in localStorage (guarded: it can throw in a private window). Long pools push
+ * the category cards far down on a phone, so they can be folded away. */
+function usePoolOpen(key) {
+  const storageKey = `ledger.analysisPoolOpen.${key}`;
+  const [open, setOpen] = useState(() => {
+    try {
+      return localStorage.getItem(storageKey) !== '0';
+    } catch {
+      return true;
+    }
+  });
+  const toggle = () =>
+    setOpen((o) => {
+      try {
+        localStorage.setItem(storageKey, o ? '0' : '1');
+      } catch {
+        // Not persisted; the toggle still works for this visit.
+      }
+      return !o;
+    });
+  return [open, toggle];
+}
+
 /** True on a finger-driven device. Drag-and-drop between the payee pool and
  * category cards is HTML5 DnD (mouse-only in practice, and fiddly on a
  * phone-sized screen even where it works), so touch devices get
@@ -351,6 +375,8 @@ export default function AnalysisView() {
   const [error, setError] = useState(null);
   const [note, setNote] = useState(null);
   const [assigning, setAssigning] = useState(null); // { kind, name, total } | null — AssignSheet target
+  const [payeePoolOpen, togglePayeePool] = usePoolOpen('payees');
+  const [accountPoolOpen, toggleAccountPool] = usePoolOpen('accounts');
   const draggingRef = useRef(null);
   const breakdownRequestRef = useRef(0);
   const isTouch = useCoarsePointer();
@@ -1199,42 +1225,54 @@ export default function AnalysisView() {
           onDragLeave={() => setDragOverTarget((t) => (t === 'payee-pool' ? null : t))}
           onDrop={handleDropOnPool}
         >
-          <div className="payee-pool-header">Payees ({poolPayees.length})</div>
-          {isTouch && <p className="muted pool-hint">Tap a payee to choose its categories.</p>}
-          <input
-            type="text"
-            className="payee-search"
-            placeholder="Search payees..."
-            value={payeeSearch}
-            onChange={(e) => setPayeeSearch(e.target.value)}
-          />
-          {visiblePoolPayees.map((p, i) => {
-            const memberOf = categoriesByPayee.get(p.name) ?? [];
-            return (
-              <div
-                key={p.name}
-                className={'payee-chip' + (selectedPayees.has(p.name) ? ' selected' : '')}
-                draggable={!isTouch}
-                onDragStart={(e) => handleDragStart('payee', p.name, e)}
-                onClick={(e) => (isTouch ? openAssign('payee', p.name) : handleItemClick('payee', p.name, i, e))}
-              >
-                <span className="payee-chip-name">
-                  {memberOf.length > 0 && (
-                    <span className="payee-chip-dots" title={`In ${memberOf.map((c) => c.name).join(', ')}`}>
-                      {memberOf.map((c) => (
-                        <span key={c.id} className="color-swatch" style={swatchStyle(c.color_index)} />
-                      ))}
+          <button
+            type="button"
+            className="payee-pool-header pool-toggle"
+            onClick={togglePayeePool}
+            aria-expanded={payeePoolOpen}
+          >
+            <span className={'automation-group-chevron' + (payeePoolOpen ? '' : ' collapsed')}>▾</span>
+            Payees ({poolPayees.length})
+          </button>
+          {payeePoolOpen && (
+            <>
+              {isTouch && <p className="muted pool-hint">Tap a payee to choose its categories.</p>}
+              <input
+                type="text"
+                className="payee-search"
+                placeholder="Search payees..."
+                value={payeeSearch}
+                onChange={(e) => setPayeeSearch(e.target.value)}
+              />
+              {visiblePoolPayees.map((p, i) => {
+                const memberOf = categoriesByPayee.get(p.name) ?? [];
+                return (
+                  <div
+                    key={p.name}
+                    className={'payee-chip' + (selectedPayees.has(p.name) ? ' selected' : '')}
+                    draggable={!isTouch}
+                    onDragStart={(e) => handleDragStart('payee', p.name, e)}
+                    onClick={(e) => (isTouch ? openAssign('payee', p.name) : handleItemClick('payee', p.name, i, e))}
+                  >
+                    <span className="payee-chip-name">
+                      {memberOf.length > 0 && (
+                        <span className="payee-chip-dots" title={`In ${memberOf.map((c) => c.name).join(', ')}`}>
+                          {memberOf.map((c) => (
+                            <span key={c.id} className="color-swatch" style={swatchStyle(c.color_index)} />
+                          ))}
+                        </span>
+                      )}
+                      {p.name}
                     </span>
-                  )}
-                  {p.name}
-                </span>
-                <span className="money">{formatMoney(p.total)}</span>
-              </div>
-            );
-          })}
-          {poolPayees.length === 0 && <p className="muted" style={{ padding: 8 }}>All payees categorized.</p>}
-          {poolPayees.length > 0 && visiblePoolPayees.length === 0 && (
-            <p className="muted" style={{ padding: 8 }}>No payees match "{payeeSearch}".</p>
+                    <span className="money">{formatMoney(p.total)}</span>
+                  </div>
+                );
+              })}
+              {poolPayees.length === 0 && <p className="muted" style={{ padding: 8 }}>All payees categorized.</p>}
+              {poolPayees.length > 0 && visiblePoolPayees.length === 0 && (
+                <p className="muted" style={{ padding: 8 }}>No payees match "{payeeSearch}".</p>
+              )}
+            </>
           )}
         </div>
 
@@ -1247,42 +1285,54 @@ export default function AnalysisView() {
           onDragLeave={() => setDragOverTarget((t) => (t === 'account-pool' ? null : t))}
           onDrop={handleDropOnPool}
         >
-          <div className="payee-pool-header">Accounts ({poolAccounts.length})</div>
-          {isTouch && <p className="muted pool-hint">Tap an account to choose its categories.</p>}
-          <input
-            type="text"
-            className="payee-search"
-            placeholder="Search accounts..."
-            value={accountSearch}
-            onChange={(e) => setAccountSearch(e.target.value)}
-          />
-          {visiblePoolAccounts.map((a, i) => {
-            const memberOf = categoriesByAccount.get(a.name) ?? [];
-            return (
-              <div
-                key={a.name}
-                className={'payee-chip' + (selectedAccounts.has(a.name) ? ' selected' : '')}
-                draggable={!isTouch}
-                onDragStart={(e) => handleDragStart('account', a.name, e)}
-                onClick={(e) => (isTouch ? openAssign('account', a.name) : handleItemClick('account', a.name, i, e))}
-              >
-                <span className="payee-chip-name">
-                  {memberOf.length > 0 && (
-                    <span className="payee-chip-dots" title={`In ${memberOf.map((c) => c.name).join(', ')}`}>
-                      {memberOf.map((c) => (
-                        <span key={c.id} className="color-swatch" style={swatchStyle(c.color_index)} />
-                      ))}
+          <button
+            type="button"
+            className="payee-pool-header pool-toggle"
+            onClick={toggleAccountPool}
+            aria-expanded={accountPoolOpen}
+          >
+            <span className={'automation-group-chevron' + (accountPoolOpen ? '' : ' collapsed')}>▾</span>
+            Accounts ({poolAccounts.length})
+          </button>
+          {accountPoolOpen && (
+            <>
+              {isTouch && <p className="muted pool-hint">Tap an account to choose its categories.</p>}
+              <input
+                type="text"
+                className="payee-search"
+                placeholder="Search accounts..."
+                value={accountSearch}
+                onChange={(e) => setAccountSearch(e.target.value)}
+              />
+              {visiblePoolAccounts.map((a, i) => {
+                const memberOf = categoriesByAccount.get(a.name) ?? [];
+                return (
+                  <div
+                    key={a.name}
+                    className={'payee-chip' + (selectedAccounts.has(a.name) ? ' selected' : '')}
+                    draggable={!isTouch}
+                    onDragStart={(e) => handleDragStart('account', a.name, e)}
+                    onClick={(e) => (isTouch ? openAssign('account', a.name) : handleItemClick('account', a.name, i, e))}
+                  >
+                    <span className="payee-chip-name">
+                      {memberOf.length > 0 && (
+                        <span className="payee-chip-dots" title={`In ${memberOf.map((c) => c.name).join(', ')}`}>
+                          {memberOf.map((c) => (
+                            <span key={c.id} className="color-swatch" style={swatchStyle(c.color_index)} />
+                          ))}
+                        </span>
+                      )}
+                      {a.name}
                     </span>
-                  )}
-                  {a.name}
-                </span>
-                <span className="money">{formatMoney(a.total)}</span>
-              </div>
-            );
-          })}
-          {poolAccounts.length === 0 && <p className="muted" style={{ padding: 8 }}>All accounts categorized.</p>}
-          {poolAccounts.length > 0 && visiblePoolAccounts.length === 0 && (
-            <p className="muted" style={{ padding: 8 }}>No accounts match "{accountSearch}".</p>
+                    <span className="money">{formatMoney(a.total)}</span>
+                  </div>
+                );
+              })}
+              {poolAccounts.length === 0 && <p className="muted" style={{ padding: 8 }}>All accounts categorized.</p>}
+              {poolAccounts.length > 0 && visiblePoolAccounts.length === 0 && (
+                <p className="muted" style={{ padding: 8 }}>No accounts match "{accountSearch}".</p>
+              )}
+            </>
           )}
         </div>
 

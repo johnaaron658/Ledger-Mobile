@@ -1069,6 +1069,12 @@ tbody tr:hover {
   .analysis-layout {
     grid-template-columns: minmax(0, 1fr);
   }
+
+  /* Stacked, the categories come first and the payee/account pools sit
+     below them, so the results aren't pushed down by long pool lists. */
+  .analysis-layout .category-grid {
+    order: -1;
+  }
 }
 
 .dropzone {
@@ -1094,6 +1100,29 @@ tbody tr:hover {
   letter-spacing: 0.04em;
   color: var(--text-muted);
   padding: 6px 8px;
+}
+
+.pool-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.pool-toggle:hover {
+  background: var(--bg-alt);
+}
+
+@media (pointer: coarse) {
+  .pool-toggle {
+    min-height: 44px;
+  }
 }
 
 .payee-search {
