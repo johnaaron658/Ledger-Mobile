@@ -1272,9 +1272,66 @@ tbody tr:hover {
   overflow: hidden;
 }
 
-.category-payees.expanded {
-  max-height: none;
-  overflow: visible;
+/* "See more" view of a category card: one row per assigned payee/account
+   with its total, instead of the clipped chip cloud. */
+.category-items-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.category-items-table td {
+  padding: 5px 4px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+
+.category-items-table tr:last-child td {
+  border-bottom: none;
+}
+
+.category-items-table tr:hover td {
+  background: var(--bg-alt);
+}
+
+.category-items-table tr.tappable {
+  cursor: pointer;
+}
+
+.category-items-name {
+  overflow-wrap: anywhere;
+}
+
+.category-items-table .money {
+  text-align: right;
+  width: 1%;
+}
+
+.category-items-kind {
+  margin-left: 6px;
+  padding: 0 4px;
+  border: 1px dashed var(--border);
+  border-radius: 4px;
+  font-size: 10px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.category-items-remove {
+  width: 1%;
+}
+
+.category-items-remove button {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  color: var(--text-muted);
+  padding: 0 2px;
+  line-height: 1;
+}
+
+.category-items-remove button:hover {
+  color: var(--danger);
 }
 
 .category-expand-btn {
@@ -1979,9 +2036,13 @@ td.txn-edit {
   .assigned-chip {
     padding: 6px 8px;
   }
-  .assigned-chip button {
+  .assigned-chip button,
+  .category-items-remove button {
     padding: 4px;
     margin: -4px -4px -4px 0;
+  }
+  .category-items-table td {
+    padding: 8px 4px;
   }
   .payee-chip {
     padding: 10px 8px;

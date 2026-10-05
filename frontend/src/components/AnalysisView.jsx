@@ -233,7 +233,7 @@ function AssignSheet({ item, categories, multi, onApply, onCreateCategory, onClo
   );
 }
 
-function CategoryCard({ cat, total, dragOver, onDragOver, onDragLeave, onDrop, onRename, onToggleHidden, onToggleBalance, onToggleNegate, onToggleForecast, onForecastLookbackChange, onDelete, onUnassign, onChipDragStart, onChipTap }) {
+function CategoryCard({ cat, total, rows, dragOver, onDragOver, onDragLeave, onDrop, onRename, onToggleHidden, onToggleBalance, onToggleNegate, onToggleForecast, onForecastLookbackChange, onDelete, onUnassign, onChipDragStart, onChipTap }) {
   const [expanded, setExpanded] = useState(false);
   const [overflowing, setOverflowing] = useState(false);
   const payeesRef = useRef(null);
@@ -289,7 +289,42 @@ function CategoryCard({ cat, total, dragOver, onDragOver, onDragLeave, onDrop, o
         />{' '}
         data points
       </label>
-      <div className={'category-payees' + (expanded ? ' expanded' : '')} ref={payeesRef}>
+      {expanded ? (
+        // Expanded, the chips become a table so long names and each item's
+        // total are readable at a glance, instead of a wrapped chip cloud.
+        <table className="category-items-table" ref={payeesRef}>
+          <tbody>
+            {rows.map((r) => (
+              <tr
+                key={`${r.kind}-${r.name}`}
+                draggable={!onChipTap}
+                onDragStart={(e) => onChipDragStart(r.kind, r.name, e)}
+                onClick={onChipTap ? () => onChipTap(r.kind, r.name) : undefined}
+                className={onChipTap ? 'tappable' : undefined}
+              >
+                <td className="category-items-name">
+                  {r.name}
+                  {r.kind === 'account' && <span className="category-items-kind">account</span>}
+                  {r.virtual && <span className="category-items-kind">virtual</span>}
+                </td>
+                <td className={'money' + (r.total === 0 ? ' muted' : '')}>{formatMoney(r.total)}</td>
+                <td className="category-items-remove">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onUnassign(r.kind, r.name);
+                    }}
+                    aria-label={`Remove ${r.name}`}
+                  >
+                    ✕
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ) : (
+      <div className="category-payees" ref={payeesRef}>
         {cat.payees.map((p) => (
           <span
             className="assigned-chip"
@@ -331,6 +366,7 @@ function CategoryCard({ cat, total, dragOver, onDragOver, onDragLeave, onDrop, o
           </span>
         ))}
       </div>
+      )}
       {(overflowing || expanded) && (
         <button className="category-expand-btn" onClick={() => setExpanded((v) => !v)}>
           {expanded ? 'Show less' : 'See more'}
@@ -639,6 +675,35 @@ export default function AnalysisView() {
     () => new Map((computed?.categories ?? []).map((c) => [c.name, c.total])),
     [computed]
   );
+  // Assigned payees/accounts with their totals, per category id, for the
+  // card's expanded table view. Built from the compute result already on hand
+  // (no new api.js method). Account assignments match by prefix in the engine
+  // (analysis.ts accountMatches), so an assigned parent sums its posting
+  // sub-accounts. Rows follow the category's sign flip, like the drill-down
+  // breakdown. A payee and an account in the same category can overlap, so
+  // rows needn't add up to the category total.
+  const assignedRowsByCategory = useMemo(() => {
+    const payeeTotals = new Map((computed?.payees ?? []).map((p) => [p.name, p]));
+    const accountRows = computed?.accounts ?? [];
+    return new Map(
+      categories.map((c) => {
+        const sign = c.negate ? neg : (v) => v;
+        const payees = c.payees.map((name) => ({
+          kind: 'payee',
+          name,
+          total: sign(payeeTotals.get(name)?.total ?? 0),
+          virtual: !!payeeTotals.get(name)?.virtual,
+        }));
+        const accounts = c.accounts.map((name) => {
+          const sum = accountRows
+            .filter((a) => a.name === name || a.name.startsWith(`${name}:`))
+            .reduce((acc, a) => acc + a.total, 0);
+          return { kind: 'account', name, total: sign(Math.round(sum * 100) / 100) };
+        });
+        return [c.id, [...payees, ...accounts].sort((a, b) => b.total - a.total)];
+      })
+    );
+  }, [categories, computed]);
   const pieData = useMemo(() => {
     const base = (computed?.categories ?? [])
       .filter((c) => c.total > 0 && !hiddenCategoryNames.has(c.name))
@@ -1343,6 +1408,7 @@ export default function AnalysisView() {
               key={cat.id}
               cat={cat}
               total={catTotalByName.get(cat.name) ?? 0}
+              rows={assignedRowsByCategory.get(cat.id) ?? []}
               dragOver={dragOverTarget === cat.id}
               onDragOver={(e) => {
                 e.preventDefault();
