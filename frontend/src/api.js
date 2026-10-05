@@ -25,6 +25,16 @@ const httpApi = {
   editTransaction: (txn) => request('PUT', '/api/transactions', txn),
   deleteTransaction: (loc) => request('DELETE', '/api/transactions', loc),
 
+  // Virtual (planned, undated) transactions. The desktop backend doesn't
+  // implement these yet; TransactionsView treats a failing
+  // getVirtualTransactions() as "feature unavailable" and hides it.
+  getVirtualTransactions: () => request('GET', '/api/virtual-transactions'),
+  addVirtualTransaction: (txn) => request('POST', '/api/virtual-transactions', txn),
+  editVirtualTransaction: (txn) => request('PUT', '/api/virtual-transactions', txn),
+  deleteVirtualTransaction: (id) => request('DELETE', `/api/virtual-transactions/${encodeURIComponent(id)}`),
+  makeTransactionVirtual: (txn) => request('POST', '/api/virtual-transactions/from-transaction', txn),
+  postVirtualTransaction: (txn) => request('POST', '/api/virtual-transactions/post', txn),
+
   getAccounts: () => request('GET', '/api/accounts'),
   getAccountNames: () => request('GET', '/api/accounts/names'),
   getAccountHistory: (account) =>

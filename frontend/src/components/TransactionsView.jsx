@@ -18,6 +18,25 @@ function splitDate(date) {
 }
 
 const txnKey = (t) => `${t.file}:${t.beg_line}`;
+const virtualKey = (v) => `virtual:${v.id}`;
+
+// Whether the virtual table is expanded. A per-device convenience, so plain
+// localStorage, guarded because it can throw in a private window.
+const VIRTUAL_OPEN_KEY = 'ledger.virtualTxnsOpen';
+function readVirtualOpen() {
+  try {
+    return localStorage.getItem(VIRTUAL_OPEN_KEY) !== '0';
+  } catch {
+    return true;
+  }
+}
+function writeVirtualOpen(open) {
+  try {
+    localStorage.setItem(VIRTUAL_OPEN_KEY, open ? '1' : '0');
+  } catch {
+    // Private mode / blocked storage: the panel just won't remember.
+  }
+}
 
 // Key of the transaction an add of {date, payee} just wrote. Adds append to
 // the end of the file, so among same-date/payee matches it's the one with
@@ -30,10 +49,15 @@ function findAddedKey(txns, { date, payee }) {
   return found && txnKey(found);
 }
 
-// `revealAdded` ({date, payee}) is set by App after a Quick add so the new
-// transaction is shown even when its date sorts it past the first page.
+// `revealAdded` ({date, payee}, or {virtualId} for a virtual one) is set by
+// App after a Quick add so the new transaction is shown even when its date
+// sorts it past the first page or the virtual table is collapsed.
 export default function TransactionsView({ revealAdded, onRevealed }) {
   const [transactions, setTransactions] = useState([]);
+  // null = the backend doesn't support virtual transactions (the desktop
+  // one doesn't yet), which hides the table and the form's checkbox.
+  const [virtualTxns, setVirtualTxns] = useState(null);
+  const [virtualOpen, setVirtualOpen] = useState(readVirtualOpen);
   const [accountNames, setAccountNames] = useState([]);
   const [query, setQuery] = useState('');
   // The query the (expensive) fuzzy filter actually runs against. Lags
@@ -61,12 +85,14 @@ export default function TransactionsView({ revealAdded, onRevealed }) {
     setLoading(true);
     setError(null);
     try {
-      const [txns, names, settings] = await Promise.all([
+      const [txns, names, settings, virtual] = await Promise.all([
         api.getTransactions(),
         api.getAccountNames(),
         api.getAppSettings(),
+        api.getVirtualTransactions().catch(() => null),
       ]);
       setTransactions(txns);
+      setVirtualTxns(virtual);
       setAccountNames(names);
       setDefaultCurrency(settings.default_currency);
       setCurrencyInput(settings.default_currency);
@@ -88,7 +114,8 @@ export default function TransactionsView({ revealAdded, onRevealed }) {
   useEffect(() => {
     load().then((txns) => {
       if (!txns || !revealAdded) return;
-      setRevealKey(findAddedKey(txns, revealAdded));
+      if (revealAdded.virtualId) revealVirtual({ id: revealAdded.virtualId });
+      else setRevealKey(findAddedKey(txns, revealAdded));
       onRevealed?.();
     });
     // Mount-only: App remounts this view (via `key`) after every Quick add.
@@ -120,11 +147,27 @@ export default function TransactionsView({ revealAdded, onRevealed }) {
 
   const payees = useMemo(() => {
     const counts = new Map();
-    for (const t of transactions) {
+    for (const t of [...transactions, ...(virtualTxns ?? [])]) {
       counts.set(t.payee, (counts.get(t.payee) ?? 0) + 1);
     }
     return [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([p]) => p);
-  }, [transactions]);
+  }, [transactions, virtualTxns]);
+
+  // Same search as the main table. There are few enough of these that a
+  // fresh Fuse per change costs nothing.
+  const visibleVirtual = useMemo(() => {
+    const list = virtualTxns ?? [];
+    if (!appliedQuery.trim()) return list;
+    const virtualFuse = new Fuse(list, { keys: ['payee', 'postings.account'], threshold: 0.35, ignoreLocation: true });
+    return virtualFuse.search(appliedQuery).map((r) => r.item);
+  }, [appliedQuery, virtualTxns]);
+
+  const toggleVirtualOpen = () => {
+    setVirtualOpen((open) => {
+      writeVirtualOpen(!open);
+      return !open;
+    });
+  };
 
   const sortedByDateDesc = (list) => [...list].sort((a, b) => (a.date < b.date ? 1 : -1));
 
@@ -136,6 +179,12 @@ export default function TransactionsView({ revealAdded, onRevealed }) {
   // Grow the page until the revealed row is rendered, then scroll to it.
   useEffect(() => {
     if (!revealKey) return;
+    if (revealKey.startsWith('virtual:')) {
+      if (!virtualOpen) return;
+      revealRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      const handle = setTimeout(() => setRevealKey(null), 2500);
+      return () => clearTimeout(handle);
+    }
     const idx = visible.findIndex((t) => txnKey(t) === revealKey);
     if (idx < 0) return;
     if (idx >= shownCount) {
@@ -145,23 +194,44 @@ export default function TransactionsView({ revealAdded, onRevealed }) {
     revealRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' });
     const handle = setTimeout(() => setRevealKey(null), 2500);
     return () => clearTimeout(handle);
-  }, [revealKey, visible, shownCount]);
+  }, [revealKey, visible, shownCount, virtualOpen, virtualTxns]);
+
+  // Reveals a virtual transaction, opening the collapsed table if needed.
+  const revealVirtual = (v) => {
+    if (!virtualOpen) {
+      setVirtualOpen(true);
+      writeVirtualOpen(true);
+    }
+    setRevealKey(virtualKey(v));
+  };
 
   const handleSave = async (payload) => {
     setSaving(true);
     setFormError(null);
     try {
+      const { virtual, ...txn } = payload;
       const isEdit = editing && editing !== 'new';
-      if (isEdit) {
-        await api.editTransaction({ ...payload, file: editing.file, beg_line: editing.beg_line, end_line: editing.end_line });
+      const wasVirtual = isEdit && editing.virtual;
+      const virtualIn = { payee: txn.payee, postings: txn.postings };
+      const loc = isEdit && !wasVirtual ? { file: editing.file, beg_line: editing.beg_line, end_line: editing.end_line } : null;
+      let savedVirtual = null;
+      if (virtual) {
+        if (wasVirtual) savedVirtual = await api.editVirtualTransaction({ id: editing.id, ...virtualIn });
+        else if (isEdit) savedVirtual = await api.makeTransactionVirtual({ ...loc, ...virtualIn });
+        else savedVirtual = await api.addVirtualTransaction(virtualIn);
+      } else if (wasVirtual) {
+        await api.postVirtualTransaction({ id: editing.id, ...txn });
+      } else if (isEdit) {
+        await api.editTransaction({ ...txn, ...loc });
       } else {
-        await api.addTransaction(payload);
+        await api.addTransaction(txn);
       }
       setEditing(null);
       const txns = await load();
+      if (savedVirtual) revealVirtual(savedVirtual);
       // An edit replaces the block in place, so it keeps its beg_line.
-      if (txns) setRevealKey(isEdit ? txnKey(editing) : findAddedKey(txns, payload));
-      setNote('Saved.');
+      else if (txns) setRevealKey(isEdit && !wasVirtual ? txnKey(editing) : findAddedKey(txns, txn));
+      setNote(virtual && !wasVirtual && isEdit ? 'Moved to virtual transactions.' : wasVirtual && !virtual ? 'Posted.' : 'Saved.');
     } catch (e) {
       setFormError(e.message);
     } finally {
@@ -175,7 +245,8 @@ export default function TransactionsView({ revealAdded, onRevealed }) {
     setSaving(true);
     setFormError(null);
     try {
-      await api.deleteTransaction({ file: editing.file, beg_line: editing.beg_line, end_line: editing.end_line });
+      if (editing.virtual) await api.deleteVirtualTransaction(editing.id);
+      else await api.deleteTransaction({ file: editing.file, beg_line: editing.beg_line, end_line: editing.end_line });
       setEditing(null);
       await load();
       setNote('Deleted.');
@@ -214,6 +285,77 @@ export default function TransactionsView({ revealAdded, onRevealed }) {
           onBlur={saveDefaultCurrency}
         />
       </div>
+      {virtualTxns && virtualTxns.length > 0 && (
+        <div className="panel txn-panel virtual-panel">
+          <button
+            type="button"
+            className="virtual-panel-header"
+            onClick={toggleVirtualOpen}
+            aria-expanded={virtualOpen}
+          >
+            <span className={'automation-group-chevron' + (virtualOpen ? '' : ' collapsed')}>▾</span>
+            <span className="virtual-panel-title">Virtual transactions</span>
+            <span className="muted">
+              {appliedQuery.trim() ? `${visibleVirtual.length} of ${virtualTxns.length}` : virtualTxns.length}
+            </span>
+          </button>
+          {virtualOpen && (
+            <table className="txn-table">
+              <colgroup>
+                <col className="txn-col-payee" />
+                <col />
+                <col className="txn-col-edit" />
+              </colgroup>
+              <thead>
+                <tr>
+                  <th>Payee</th>
+                  <th>Postings</th>
+                  <th aria-label="Edit"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {visibleVirtual.map((v) => {
+                  const revealed = virtualKey(v) === revealKey;
+                  return (
+                    <tr
+                      key={v.id}
+                      ref={revealed ? revealRef : undefined}
+                      className={revealed ? 'txn-revealed' : undefined}
+                    >
+                      <td className="txn-payee">{v.payee}</td>
+                      <td className="txn-postings">
+                        {v.postings.map((p, i) => (
+                          <div className="txn-posting" key={i}>
+                            <TruncateStart text={p.account} className="txn-account" />
+                            <span className="money txn-amount">{p.amount_raw}</span>
+                          </div>
+                        ))}
+                      </td>
+                      <td className="txn-edit">
+                        <button
+                          className="icon-btn"
+                          onClick={() => setEditing({ ...v, virtual: true })}
+                          aria-label={`Edit virtual ${v.payee}`}
+                          title="Edit"
+                        >
+                          <PencilIcon />
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+                {visibleVirtual.length === 0 && (
+                  <tr>
+                    <td colSpan={3} className="muted" style={{ padding: 16 }}>
+                      No virtual transactions match.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
       <div className={'panel txn-panel' + (loading || searching ? ' is-busy' : '')}>
         {(loading || searching) && <div className="progress-bar" aria-hidden="true" />}
         {loading && transactions.length === 0 ? (
@@ -293,6 +435,8 @@ export default function TransactionsView({ revealAdded, onRevealed }) {
       {editing && (
         <TransactionForm
           initial={editing === 'new' ? null : editing}
+          title={editing !== 'new' && editing.virtual ? 'Edit virtual transaction' : undefined}
+          allowVirtual={virtualTxns !== null}
           accountNames={accountNames}
           payees={payees}
           defaultCurrency={defaultCurrency}

@@ -66,6 +66,9 @@ export default function TransactionForm({
   initialPayee,
   initialPostings,
   title,
+  // Shows the "Virtual" checkbox. Only TransactionsView handles the
+  // `virtual` flag in the saved payload, so Quick add leaves it off.
+  allowVirtual,
   accountNames,
   payees,
   defaultCurrency,
@@ -77,6 +80,7 @@ export default function TransactionForm({
 }) {
   const [date, setDate] = useState(initial?.date ?? initialDate ?? formatLedger(new Date()));
   const [payee, setPayee] = useState(initial?.payee ?? initialPayee ?? '');
+  const [virtual, setVirtual] = useState(!!initial?.virtual);
   const [postings, setPostings] = useState(
     initial?.postings?.length
       ? initial.postings.map((p) => ({ account: p.account, amount_raw: p.amount_raw }))
@@ -95,6 +99,7 @@ export default function TransactionForm({
     onSave({
       date,
       payee,
+      ...(allowVirtual ? { virtual } : {}),
       postings: postings
         .filter((p) => p.account.trim())
         .map((p) => ({ ...p, amount_raw: normalizeAmount(p.amount_raw, defaultCurrency) })),
@@ -107,10 +112,21 @@ export default function TransactionForm({
         <h3>{title ?? (initial ? 'Edit transaction' : 'Add transaction')}</h3>
         {error && <div className="error-banner">{error}</div>}
         <form onSubmit={handleSubmit}>
-          <div className="form-row">
-            <label>Date (YYYY/MM/DD)</label>
-            <input value={date} onChange={(e) => setDate(e.target.value)} required />
-          </div>
+          {allowVirtual && (
+            <label className="form-check">
+              <input type="checkbox" checked={virtual} onChange={(e) => setVirtual(e.target.checked)} />
+              <span>
+                Virtual
+                <span className="muted form-check-hint">Not posted yet. No date, and no effect on balances.</span>
+              </span>
+            </label>
+          )}
+          {!virtual && (
+            <div className="form-row">
+              <label>Date (YYYY/MM/DD)</label>
+              <input value={date} onChange={(e) => setDate(e.target.value)} required />
+            </div>
+          )}
           <div className="form-row">
             <label>Payee</label>
             <FuzzyCombobox value={payee} onChange={setPayee} options={payees} placeholder="Payee" required autoFocus />

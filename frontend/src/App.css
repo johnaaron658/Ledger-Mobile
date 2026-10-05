@@ -1785,6 +1785,65 @@ td.txn-edit {
   color: var(--accent);
 }
 
+/* Virtual (planned, undated) transactions: a collapsible table above the
+   main one. */
+.virtual-panel {
+  margin-bottom: 12px;
+  border-style: dashed;
+}
+
+.virtual-panel-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 44px;
+  padding: 8px 12px;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.virtual-panel-header:hover {
+  background: var(--bg-alt);
+}
+
+.virtual-panel-title {
+  font-weight: 600;
+  color: var(--text-h);
+}
+
+.virtual-panel .txn-table {
+  border-top: 1px solid var(--border);
+}
+
+.form-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 12px;
+  cursor: pointer;
+}
+
+.form-check input {
+  width: 18px;
+  height: 18px;
+  margin: 2px 0 0;
+  flex: none;
+}
+
+.form-check-hint {
+  display: block;
+  font-size: 12px;
+}
+
+.payee-chip.virtual {
+  border-style: dashed;
+}
+
 .show-more {
   display: flex;
   justify-content: space-between;

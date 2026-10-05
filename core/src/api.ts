@@ -26,6 +26,7 @@ import {
 } from "./journalEdit.js";
 import type { Storage } from "./store.js";
 import { listTransactions } from "./transactions.js";
+import * as virtualTxns from "./virtualTransactions.js";
 import {
   type ConfigImportResult,
   type JournalImportResult,
@@ -88,6 +89,17 @@ export interface TransactionDeleteIn {
   file: string;
   beg_line: number;
   end_line: number;
+}
+export interface VirtualTransactionEditIn extends virtualTxns.VirtualTransactionIn {
+  id: string;
+}
+export interface MakeVirtualIn extends virtualTxns.VirtualTransactionIn {
+  file: string;
+  beg_line: number;
+  end_line: number;
+}
+export interface PostVirtualIn extends TransactionIn {
+  id: string;
 }
 export interface CommodityPriceIn {
   commodity: string;
@@ -206,6 +218,44 @@ export function createLocalApi(storage: Storage, journalPath = "journal.ledger")
       return { ok: true, ...result };
     },
 
+    // Virtual transactions (virtualTransactions.ts): undated, kept out of
+    // the journal until posted.
+    async getVirtualTransactions() {
+      return virtualTxns.listVirtualTransactions(storage, localToday());
+    },
+    async addVirtualTransaction(txn: virtualTxns.VirtualTransactionIn) {
+      return virtualTxns.addVirtualTransaction(storage, localToday(), txn);
+    },
+    async editVirtualTransaction(txn: VirtualTransactionEditIn) {
+      try {
+        return await virtualTxns.editVirtualTransaction(storage, localToday(), txn.id, txn);
+      } catch (e) {
+        if (e instanceof virtualTxns.VirtualTransactionNotFound) notFound("Virtual transaction not found");
+        throw e;
+      }
+    },
+    async deleteVirtualTransaction(id: string) {
+      try {
+        await virtualTxns.deleteVirtualTransaction(storage, id);
+      } catch (e) {
+        if (e instanceof virtualTxns.VirtualTransactionNotFound) notFound("Virtual transaction not found");
+        throw e;
+      }
+      return { ok: true };
+    },
+    async makeTransactionVirtual(txn: MakeVirtualIn) {
+      return virtualTxns.makeTransactionVirtual(storage, localToday(), txn, txn);
+    },
+    async postVirtualTransaction(txn: PostVirtualIn) {
+      try {
+        const result = await virtualTxns.postVirtualTransaction(storage, txn.id, txn.date, txn);
+        return { ok: true, ...result };
+      } catch (e) {
+        if (e instanceof virtualTxns.VirtualTransactionNotFound) notFound("Virtual transaction not found");
+        throw e;
+      }
+    },
+
     async getAccounts() {
       const { journal, index } = await loadJournal(storage);
       const target = (await getSettings(storage)).main_commodity;
@@ -305,9 +355,10 @@ export function createLocalApi(storage: Storage, journalPath = "journal.ledger")
       return { ok: true };
     },
     async computeAnalysis(draft: ComputeIn) {
-      const { journal, index } = await loadJournal(storage);
+      const { text, journal, index } = await loadJournal(storage);
       const target = (await getSettings(storage)).main_commodity;
-      return computeAnalysis(journal, index, target, draft.start_date ?? null, draft.end_date ?? null, draft.categories ?? [], draft.excluded_accounts ?? []);
+      const virtual = await virtualTxns.virtualJournal(storage, text, localToday());
+      return computeAnalysis(journal, index, target, draft.start_date ?? null, draft.end_date ?? null, draft.categories ?? [], draft.excluded_accounts ?? [], virtual);
     },
     async computeAnalysisSeries(draft: ComputeSeriesIn) {
       const { journal, index } = await loadJournal(storage);

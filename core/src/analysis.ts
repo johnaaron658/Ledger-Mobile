@@ -82,7 +82,8 @@ function endExclusive(d: Date): Date {
 export interface ComputeAnalysisResult {
   categories: { name: string; color_index: number; total: number; payees: string[] }[];
   uncategorized: { total: number; payees: string[] };
-  payees: { name: string; total: number }[];
+  /** `virtual` marks a payee with at least one virtual transaction. */
+  payees: { name: string; total: number; virtual?: boolean }[];
   accounts: { name: string; total: number }[];
 }
 
@@ -95,6 +96,7 @@ export function computeAnalysis(
   endDate: string | null,
   categories: readonly AnalysisCategory[],
   excludedAccounts: readonly string[] = [],
+  virtualJournal: Journal | null = null,
 ): ComputeAnalysisResult {
   const begin = startDate ? (parseLedgerDate(startDate) ?? undefined) : undefined;
   const parsedEnd = endDate ? parseLedgerDate(endDate) : null;
@@ -108,36 +110,49 @@ export function computeAnalysis(
   let uncategorizedTotal = 0;
   const uncategorizedPayees = new Set<string>();
 
-  // Expense-side postings drive payee totals, "uncategorized", and
-  // payee-based category matching — scoped to Expenses so a payee
-  // assignment only ever counts that payee's actual spend, never the paired
-  // Asset/Income posting of the same transaction.
-  for (const row of register(journal, { accountPattern: /Expenses/i, begin, end, sort: "none", valuation: { index, target, trackTotal: true } })) {
-    if (isExcludedAccount(row.account, excludedAccounts) || !row.valuedAmount) continue;
-    const value = roundToDisplayPrecision(row.valuedAmount.qty, precision, wasActuallyConverted(row.amount, row.valuedAmount));
-    payeeTotals.set(row.payee, (payeeTotals.get(row.payee) ?? 0) + value);
-    accountTotals.set(row.account, (accountTotals.get(row.account) ?? 0) + value);
-    const matched = matchingCategories(row.payee, row.account, categories);
-    if (matched.length > 0) {
-      for (const cat of matched) {
-        catTotals.set(cat.name, (catTotals.get(cat.name) ?? 0) + value);
-        catPayees.get(cat.name)!.add(row.payee);
+  const virtualPayees = new Set<string>();
+
+  // Run once over the journal (date-scoped), then once over the virtual
+  // transactions (virtualTransactions.ts). Those have no date, so the
+  // analysis' range never scopes them out. They only take the Expenses pass
+  // below, i.e. they count by payee (and by Expenses account), never toward
+  // an Assets/Income category: they haven't moved any money yet.
+  const accumulate = (j: Journal, begin: Date | undefined, end: Date | undefined, isVirtual: boolean) => {
+    // Expense-side postings drive payee totals, "uncategorized", and
+    // payee-based category matching — scoped to Expenses so a payee
+    // assignment only ever counts that payee's actual spend, never the paired
+    // Asset/Income posting of the same transaction.
+    for (const row of register(j, { accountPattern: /Expenses/i, begin, end, sort: "none", valuation: { index, target, trackTotal: true } })) {
+      if (isExcludedAccount(row.account, excludedAccounts) || !row.valuedAmount) continue;
+      const value = roundToDisplayPrecision(row.valuedAmount.qty, precision, wasActuallyConverted(row.amount, row.valuedAmount));
+      payeeTotals.set(row.payee, (payeeTotals.get(row.payee) ?? 0) + value);
+      if (isVirtual) virtualPayees.add(row.payee);
+      accountTotals.set(row.account, (accountTotals.get(row.account) ?? 0) + value);
+      const matched = matchingCategories(row.payee, row.account, categories);
+      if (matched.length > 0) {
+        for (const cat of matched) {
+          catTotals.set(cat.name, (catTotals.get(cat.name) ?? 0) + value);
+          catPayees.get(cat.name)!.add(row.payee);
+        }
+      } else {
+        uncategorizedTotal += value;
+        uncategorizedPayees.add(row.payee);
       }
-    } else {
-      uncategorizedTotal += value;
-      uncategorizedPayees.add(row.payee);
     }
-  }
-  // Every other account (Assets, Liabilities, Equity, Income) only surfaces
-  // when a category explicitly claims that account.
-  for (const row of register(journal, { begin, end, sort: "none", valuation: { index, target, trackTotal: true } })) {
-    if (isExpenseAccount(row.account) || isExcludedAccount(row.account, excludedAccounts) || !row.valuedAmount) continue;
-    const value = roundToDisplayPrecision(row.valuedAmount.qty, precision, wasActuallyConverted(row.amount, row.valuedAmount));
-    accountTotals.set(row.account, (accountTotals.get(row.account) ?? 0) + value);
-    for (const cat of categories) {
-      if (accountMatches(row.account, cat.accounts ?? [])) catTotals.set(cat.name, (catTotals.get(cat.name) ?? 0) + value);
+    if (isVirtual) return;
+    // Every other account (Assets, Liabilities, Equity, Income) only surfaces
+    // when a category explicitly claims that account.
+    for (const row of register(j, { begin, end, sort: "none", valuation: { index, target, trackTotal: true } })) {
+      if (isExpenseAccount(row.account) || isExcludedAccount(row.account, excludedAccounts) || !row.valuedAmount) continue;
+      const value = roundToDisplayPrecision(row.valuedAmount.qty, precision, wasActuallyConverted(row.amount, row.valuedAmount));
+      accountTotals.set(row.account, (accountTotals.get(row.account) ?? 0) + value);
+      for (const cat of categories) {
+        if (accountMatches(row.account, cat.accounts ?? [])) catTotals.set(cat.name, (catTotals.get(cat.name) ?? 0) + value);
+      }
     }
-  }
+  };
+  accumulate(journal, begin, end, false);
+  if (virtualJournal) accumulate(virtualJournal, undefined, undefined, true);
   return {
     categories: categories.map((cat) => ({
       name: cat.name,
@@ -146,7 +161,9 @@ export function computeAnalysis(
       payees: [...(catPayees.get(cat.name) ?? [])].sort(),
     })),
     uncategorized: { total: round2(uncategorizedTotal), payees: [...uncategorizedPayees].sort() },
-    payees: [...payeeTotals.entries()].sort((a, b) => b[1] - a[1]).map(([name, v]) => ({ name, total: round2(v) })),
+    payees: [...payeeTotals.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .map(([name, v]) => (virtualPayees.has(name) ? { name, total: round2(v), virtual: true } : { name, total: round2(v) })),
     accounts: [...accountTotals.entries()].sort((a, b) => b[1] - a[1]).map(([name, v]) => ({ name, total: round2(v) })),
   };
 }

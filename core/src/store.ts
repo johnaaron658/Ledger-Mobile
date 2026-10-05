@@ -2,7 +2,7 @@
 // phase's tests/harness), browser, and Capacitor. `core` takes this
 // injected rather than reaching for fs/IndexedDB itself.
 
-export type ConfigFile = "app_settings" | "budget_settings" | "analyses" | "automations";
+export type ConfigFile = "app_settings" | "budget_settings" | "analyses" | "automations" | "virtual_transactions";
 
 export interface Storage {
   readJournal(): Promise<string | null>; // null = nothing imported yet (§5.4's empty state)

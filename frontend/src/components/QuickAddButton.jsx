@@ -16,6 +16,9 @@ export default function QuickAddButton({ onSaved }) {
   const [accountNames, setAccountNames] = useState([]);
   const [payees, setPayees] = useState([]);
   const [defaultCurrency, setDefaultCurrency] = useState('');
+  // Same "unsupported backend" convention as TransactionsView: a failing
+  // getVirtualTransactions() hides the Virtual checkbox.
+  const [virtualSupported, setVirtualSupported] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
 
@@ -24,14 +27,16 @@ export default function QuickAddButton({ onSaved }) {
     setLoading(true);
     setError(null);
     try {
-      const [names, txns, settings] = await Promise.all([
+      const [names, txns, settings, virtual] = await Promise.all([
         api.getAccountNames(),
         api.getTransactions(),
         api.getAppSettings(),
+        api.getVirtualTransactions().catch(() => null),
       ]);
       setAccountNames(names);
+      setVirtualSupported(virtual !== null);
       const counts = new Map();
-      for (const t of txns) counts.set(t.payee, (counts.get(t.payee) ?? 0) + 1);
+      for (const t of [...txns, ...(virtual ?? [])]) counts.set(t.payee, (counts.get(t.payee) ?? 0) + 1);
       setPayees([...counts.entries()].sort((a, b) => b[1] - a[1]).map(([p]) => p));
       setDefaultCurrency(settings.default_currency);
     } catch (e) {
@@ -45,9 +50,16 @@ export default function QuickAddButton({ onSaved }) {
     setSaving(true);
     setError(null);
     try {
-      await api.addTransaction(payload);
-      setOpen(false);
-      onSaved?.(payload);
+      const { virtual, ...txn } = payload;
+      if (virtual) {
+        const saved = await api.addVirtualTransaction({ payee: txn.payee, postings: txn.postings });
+        setOpen(false);
+        onSaved?.({ virtualId: saved.id });
+      } else {
+        await api.addTransaction(txn);
+        setOpen(false);
+        onSaved?.({ date: txn.date, payee: txn.payee });
+      }
     } catch (e) {
       setError(e.message);
     } finally {
@@ -72,6 +84,7 @@ export default function QuickAddButton({ onSaved }) {
       {open && !loading && (
         <TransactionForm
           title="Quick add"
+          allowVirtual={virtualSupported}
           accountNames={accountNames}
           payees={payees}
           defaultCurrency={defaultCurrency}

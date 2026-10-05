@@ -237,7 +237,7 @@ describe("config bundle export/import", () => {
     const dest = new MemoryStorage();
     const result = await importConfig(dest, new Uint8Array([1, 2, 3, 4]), "replace");
     expect(result.applied).toEqual([]);
-    expect(result.skipped).toHaveLength(4);
+    expect(result.skipped).toHaveLength(5);
   });
 
   it("skips everything when the bundle's schema_version is newer than supported", async () => {

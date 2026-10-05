@@ -21,6 +21,7 @@ export * from "./budgets.js";
 export * from "./analysis.js";
 export * from "./analysisStore.js";
 export * from "./automations.js";
+export * from "./virtualTransactions.js";
 export * from "./journalEdit.js";
 export * from "./mobileState.js";
 export * from "./api.js";

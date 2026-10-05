@@ -8,6 +8,7 @@ import { strToU8, strFromU8, unzipSync, zipSync } from "fflate";
 import type { Automation, AutomationGroup, PendingOccurrence } from "./automations.js";
 import type { AnalysisRecord } from "./analysisStore.js";
 import type { ConfigFile, Storage } from "./store.js";
+import type { VirtualTransaction } from "./virtualTransactions.js";
 
 export interface ImportIssue {
   line?: number;
@@ -110,7 +111,7 @@ export function emptyJournalText(settings: { default_currency: string; main_comm
 
 // --- Config bundle (§3.2 of MOBILE_APP.md) ---------------------------------
 
-const CONFIG_FILES: ConfigFile[] = ["app_settings", "budget_settings", "analyses", "automations"];
+const CONFIG_FILES: ConfigFile[] = ["app_settings", "budget_settings", "analyses", "automations", "virtual_transactions"];
 const MANIFEST_NAME = "manifest.json";
 export const CONFIG_SCHEMA_VERSION = 1;
 
@@ -159,6 +160,19 @@ async function applyConfigFile(storage: Storage, file: ConfigFile, incoming: unk
     }
     const current = (await storage.readConfig(file)) as { analyses?: AnalysisRecord[] } | null;
     await storage.writeConfig(file, { analyses: mergeById(current?.analyses ?? [], data.analyses) });
+    return;
+  }
+
+  if (file === "virtual_transactions") {
+    // Mobile-only (no backend/data equivalent), id-keyed like analyses.
+    const data = incoming as { virtual_transactions?: VirtualTransaction[] };
+    if (!Array.isArray(data.virtual_transactions)) throw new Error("missing `virtual_transactions` array");
+    if (mode === "replace") {
+      await storage.writeConfig(file, data);
+      return;
+    }
+    const current = (await storage.readConfig(file)) as { virtual_transactions?: VirtualTransaction[] } | null;
+    await storage.writeConfig(file, { virtual_transactions: mergeById(current?.virtual_transactions ?? [], data.virtual_transactions) });
     return;
   }
 

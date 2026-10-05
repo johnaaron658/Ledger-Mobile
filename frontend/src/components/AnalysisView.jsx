@@ -1249,7 +1249,8 @@ export default function AnalysisView() {
                 return (
                   <div
                     key={p.name}
-                    className={'payee-chip' + (selectedPayees.has(p.name) ? ' selected' : '')}
+                    className={'payee-chip' + (selectedPayees.has(p.name) ? ' selected' : '') + (p.virtual ? ' virtual' : '')}
+                    title={p.virtual ? 'Includes virtual (not yet posted) transactions' : undefined}
                     draggable={!isTouch}
                     onDragStart={(e) => handleDragStart('payee', p.name, e)}
                     onClick={(e) => (isTouch ? openAssign('payee', p.name) : handleItemClick('payee', p.name, i, e))}

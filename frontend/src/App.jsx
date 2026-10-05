@@ -147,7 +147,8 @@ function AppContent() {
       {currencyLoaded && (
         <QuickAddButton
           onSaved={(payload) => {
-            setQuickAdded({ date: payload.date, payee: payload.payee });
+            // {date, payee} for a journal add, {virtualId} for a virtual one.
+            setQuickAdded(payload);
             setRefreshKey((k) => k + 1);
           }}
         />
