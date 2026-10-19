@@ -93,6 +93,8 @@ export default function AccountsView() {
   const [transactions, setTransactions] = useState([]);
   const [accountNames, setAccountNames] = useState([]);
   const [editing, setEditing] = useState(null);
+  // Prefill for a 'new' form opened by Duplicate: { payee, postings }.
+  const [draft, setDraft] = useState(null);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState(null);
   const [note, setNote] = useState(null);
@@ -263,6 +265,7 @@ export default function AccountsView() {
         await api.addTransaction(payload);
       }
       setEditing(null);
+      setDraft(null);
       await refreshAfterSave();
       setNote(editing === 'new-account' ? 'Account created.' : 'Saved.');
     } catch (e) {
@@ -452,24 +455,32 @@ export default function AccountsView() {
 
       {editing && (
         <TransactionForm
+          // Remounts when Duplicate swaps the edit form for a prefilled new one.
+          key={draft ? 'duplicate' : 'form'}
           initial={typeof editing === 'object' ? editing : null}
           initialDate={editing === 'new' ? selectedDate : undefined}
-          initialPayee={editing === 'new-account' ? 'Starting Balance' : undefined}
+          initialPayee={editing === 'new-account' ? 'Starting Balance' : draft?.payee}
           initialPostings={
             editing === 'new-account'
               ? [{ account: '', amount_raw: defaultCurrency }, { account: 'Equity:Starting Balance', amount_raw: '' }]
-              : undefined
+              : draft?.postings
           }
-          title={editing === 'new-account' ? 'New account' : undefined}
+          title={editing === 'new-account' ? 'New account' : draft ? 'Duplicate transaction' : undefined}
           accountNames={accountNames}
           payees={payees}
           defaultCurrency={defaultCurrency}
           onSave={handleSave}
           onClose={() => {
             setEditing(null);
+            setDraft(null);
             setFormError(null);
           }}
           onDelete={handleModalDelete}
+          onDuplicate={(d) => {
+            setDraft(d);
+            setEditing('new');
+            setFormError(null);
+          }}
           saving={saving}
           error={formError}
         />

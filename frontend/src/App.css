@@ -2179,8 +2179,14 @@ td.txn-edit {
     padding: 18px 16px calc(18px + env(safe-area-inset-bottom, 0px));
   }
 
+  /* Grow from natural width (not basis 0) so a four-button edit footer
+     (Delete, Duplicate, Cancel, Save) wraps instead of clipping labels. */
+  .modal-actions {
+    flex-wrap: wrap;
+  }
+
   .modal-actions .btn {
-    flex: 1;
+    flex: 1 0 auto;
   }
 
   .posting-row {

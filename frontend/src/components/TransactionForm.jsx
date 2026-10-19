@@ -65,6 +65,7 @@ export default function TransactionForm({
   initialDate,
   initialPayee,
   initialPostings,
+  initialVirtual,
   title,
   // Shows the "Virtual" checkbox. Only TransactionsView handles the
   // `virtual` flag in the saved payload, so Quick add leaves it off.
@@ -75,12 +76,15 @@ export default function TransactionForm({
   onSave,
   onClose,
   onDelete,
+  // Given only when editing. Receives the form's current payee, postings and
+  // virtual flag; the parent reopens the form as a new, prefilled transaction.
+  onDuplicate,
   saving,
   error,
 }) {
   const [date, setDate] = useState(initial?.date ?? initialDate ?? formatLedger(new Date()));
   const [payee, setPayee] = useState(initial?.payee ?? initialPayee ?? '');
-  const [virtual, setVirtual] = useState(!!initial?.virtual);
+  const [virtual, setVirtual] = useState(!!(initial?.virtual ?? initialVirtual));
   const [postings, setPostings] = useState(
     initial?.postings?.length
       ? initial.postings.map((p) => ({ account: p.account, amount_raw: p.amount_raw }))
@@ -171,6 +175,16 @@ export default function TransactionForm({
                 disabled={saving}
               >
                 Delete
+              </button>
+            )}
+            {initial && onDuplicate && (
+              <button
+                type="button"
+                className="btn"
+                onClick={() => onDuplicate({ payee, virtual, postings })}
+                disabled={saving}
+              >
+                Duplicate
               </button>
             )}
             <button type="button" className="btn" onClick={onClose} disabled={saving}>

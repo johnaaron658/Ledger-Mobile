@@ -70,6 +70,8 @@ export default function TransactionsView({ revealAdded, onRevealed }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [editing, setEditing] = useState(null); // null | 'new' | transaction object
+  // Prefill for a 'new' form opened by Duplicate: { payee, virtual, postings }.
+  const [draft, setDraft] = useState(null);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState(null);
   const [note, setNote] = useState(null);
@@ -227,6 +229,7 @@ export default function TransactionsView({ revealAdded, onRevealed }) {
         await api.addTransaction(txn);
       }
       setEditing(null);
+      setDraft(null);
       const txns = await load();
       if (savedVirtual) revealVirtual(savedVirtual);
       // An edit replaces the block in place, so it keeps its beg_line.
@@ -434,8 +437,13 @@ export default function TransactionsView({ revealAdded, onRevealed }) {
       </div>
       {editing && (
         <TransactionForm
+          // Remounts when Duplicate swaps the edit form for a prefilled new one.
+          key={draft ? 'duplicate' : 'form'}
           initial={editing === 'new' ? null : editing}
-          title={editing !== 'new' && editing.virtual ? 'Edit virtual transaction' : undefined}
+          initialPayee={draft?.payee}
+          initialPostings={draft?.postings}
+          initialVirtual={draft?.virtual}
+          title={draft ? 'Duplicate transaction' : editing !== 'new' && editing.virtual ? 'Edit virtual transaction' : undefined}
           allowVirtual={virtualTxns !== null}
           accountNames={accountNames}
           payees={payees}
@@ -443,9 +451,15 @@ export default function TransactionsView({ revealAdded, onRevealed }) {
           onSave={handleSave}
           onClose={() => {
             setEditing(null);
+            setDraft(null);
             setFormError(null);
           }}
           onDelete={handleDelete}
+          onDuplicate={(d) => {
+            setDraft(d);
+            setEditing('new');
+            setFormError(null);
+          }}
           saving={saving}
           error={formError}
         />
