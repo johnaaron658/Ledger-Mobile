@@ -521,10 +521,143 @@ tbody tr:hover {
 
 .posting-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 140px auto;
+  grid-template-columns: auto minmax(0, 1fr) 140px auto;
   gap: 8px;
   margin-bottom: 8px;
   align-items: start;
+}
+
+/* While a split is active every row gets the percentage column (blank for
+   unchecked postings) so the columns line up across rows. */
+.posting-row.has-split {
+  grid-template-columns: auto minmax(0, 1fr) 140px 76px auto;
+}
+
+.form-row input.posting-check,
+.posting-check {
+  width: 18px;
+  height: 18px;
+  margin: 9px 0 0;
+  padding: 0;
+}
+
+.posting-pct {
+  position: relative;
+}
+
+.form-row .posting-pct input {
+  padding-right: 22px;
+  text-align: right;
+}
+
+.posting-pct-suffix {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-muted);
+  pointer-events: none;
+}
+
+/* The proxy posting is computed, not entered: only its account is editable. */
+.posting-proxy .posting-proxy-amount,
+.form-row .posting-proxy .posting-pct input {
+  border-style: dashed;
+  color: var(--text-muted);
+}
+
+.posting-pct-btn {
+  display: block;
+  width: 100%;
+  padding: 8px 22px 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: inherit;
+  font: inherit;
+  text-align: right;
+  cursor: pointer;
+}
+
+.posting-pct-btn[aria-expanded='true'] {
+  border-color: var(--accent);
+}
+
+.posting-pct-btn:disabled {
+  cursor: default;
+  color: var(--text-muted);
+}
+
+/* Anchored to the percentage cell's right edge and opening leftward, since
+   that cell sits at the right of the row on both layouts. */
+.pct-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 20;
+  width: min(300px, calc(100vw - 32px));
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+}
+
+.pct-popover-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: 13px;
+}
+
+.pct-popover-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.form-row .pct-popover input[type='range'] {
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: none;
+  accent-color: var(--accent);
+}
+
+.pct-popover-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.pct-popover-foot .posting-pct {
+  width: 84px;
+  flex: none;
+}
+
+.pct-popover-hint {
+  flex: 1;
+  font-size: 12px;
+}
+
+@media (pointer: coarse) {
+  /* A taller track is easier to grab with a thumb. */
+  .form-row .pct-popover input[type='range'] {
+    height: 32px;
+  }
+}
+
+.posting-split-total {
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+
+.posting-buttons {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .combobox {
@@ -2189,15 +2322,29 @@ td.txn-edit {
     flex: 1 0 auto;
   }
 
+  /* Checkbox + account on the first line; amount (and percentage) below. */
   .posting-row {
-    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-areas:
+      'check account account'
+      'amount amount remove';
     padding-bottom: 8px;
     border-bottom: 1px dashed var(--border);
   }
 
-  .posting-row > .combobox {
-    grid-column: 1 / -1;
+  .posting-row.has-split {
+    grid-template-columns: auto minmax(0, 1fr) 76px auto;
+    grid-template-areas:
+      'check account account account'
+      'amount amount pct remove';
   }
+
+  .posting-row > .posting-check { grid-area: check; }
+  .posting-row > .combobox { grid-area: account; }
+  .posting-row > .amount-input { grid-area: amount; }
+  .posting-row > .posting-pct,
+  .posting-row > span:not(.posting-check) { grid-area: pct; }
+  .posting-row > .posting-remove { grid-area: remove; }
 
   /* Transactions table: tighter columns so all four fit at ~360px. */
   .txn-table {
