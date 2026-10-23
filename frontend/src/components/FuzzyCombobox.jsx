@@ -16,10 +16,18 @@ function visibleBounds() {
 const isTouch = () => window.matchMedia?.('(pointer: coarse)').matches;
 
 // Stand-in for the keyboard's "Next" action, which we give up (see the
-// enterKeyHint comment below). Moves to the next usable field in the form.
+// enterKeyHint comment below). Moves to the next usable field in the form:
+// only fields you type into, so it skips checkboxes (e.g. the posting split
+// checkbox) and anything read-only or taken out of the focus order.
+const NON_TEXT_TYPES = ['hidden', 'checkbox', 'radio', 'range', 'file', 'button', 'submit', 'reset'];
 function focusNextField(input) {
   const fields = [...(input.form?.elements ?? [])].filter(
-    (el) => el.matches('input, select, textarea') && !el.disabled && el.type !== 'hidden'
+    (el) =>
+      el.matches('input, select, textarea') &&
+      !el.disabled &&
+      !el.readOnly &&
+      el.tabIndex >= 0 &&
+      !NON_TEXT_TYPES.includes(el.type)
   );
   fields[fields.indexOf(input) + 1]?.focus();
 }

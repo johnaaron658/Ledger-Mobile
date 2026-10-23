@@ -335,6 +335,9 @@ export default function TransactionForm({
                   <input
                     type="checkbox"
                     className="posting-check"
+                    // Out of the focus order, so the phone keyboard's Next/Enter
+                    // goes from Payee to Account rather than stopping here.
+                    tabIndex={-1}
                     title="Include in split"
                     aria-label="Include in split"
                     checked={!!p.checked}
